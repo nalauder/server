@@ -4,6 +4,7 @@ namespace Hashtopolis\inc\apiv2\helper;
 
 use Hashtopolis\dba\AbstractModel;
 use Hashtopolis\dba\models\User;
+use Hashtopolis\inc\apiv2\auth\oidc\OidcConfig;
 use Hashtopolis\inc\apiv2\common\AbstractHelperAPI;
 use Hashtopolis\inc\HTException;
 use Psr\Http\Message\ServerRequestInterface;
