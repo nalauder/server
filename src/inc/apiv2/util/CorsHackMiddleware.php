@@ -90,14 +90,91 @@ class CorsHackMiddleware implements MiddlewareInterface {
       throw new HttpForbidden("CORS error: the request Origin '$requestHttpOrigin' is not a usable http(s) origin.");
     }
 
-    foreach ($allowed as $candidate) {
-      if (self::originsMatch($origin, $candidate)) {
-        return $requestHttpOrigin;
-      }
+    if (self::matchesAllowed($origin, $allowed)) {
+      return $requestHttpOrigin;
     }
 
     $expected = implode(', ', array_map(self::describeOrigin(...), $allowed));
     throw new HttpForbidden("CORS error: the request Origin '$requestHttpOrigin' does not match this deployment. Allowed origins are: $expected. Check HASHTOPOLIS_BACKEND_URL, HASHTOPOLIS_FRONTEND_URLS and HASHTOPOLIS_FRONTEND_PORT.");
+  }
+
+  /**
+   * Whether an origin string names one of the origins this deployment trusts, by the same list and
+   * matching as the CORS check. Meant for values that came from a client, such as a redirect target.
+   *
+   * Only a bare origin qualifies: a path, query, fragment or userinfo makes the value untrusted. A lone
+   * trailing "/" is tolerated, as the CORS check ignores the path altogether. With no origin
+   * configured nothing is trusted.
+   *
+   * @throws HttpForbidden when a setting names something that is not an http(s) origin
+   */
+  public static function isTrustedOrigin(string $origin): bool {
+    $origin = trim($origin);
+    $parts = parse_url($origin);
+    if ($parts === false) {
+      return false;
+    }
+    if (isset($parts['query']) || isset($parts['fragment']) || isset($parts['user']) || isset($parts['pass'])
+      || (isset($parts['path']) && $parts['path'] !== '/')) {
+      return false;
+    }
+    // parse_url keeps a bare "?" or "#" out of its result, so those are rejected here
+    if (str_contains($origin, '?') || str_contains($origin, '#') || str_contains($origin, '@')) {
+      return false;
+    }
+
+    $parsed = self::parseOrigin($origin);
+
+    return $parsed !== null && self::matchesAllowed($parsed, self::allowedOrigins());
+  }
+
+  /**
+   * The frontend origin to send a browser back to when nothing more specific was asked for: the first
+   * HASHTOPOLIS_FRONTEND_URLS entry, otherwise the backend's scheme and host on
+   * HASHTOPOLIS_FRONTEND_PORT, otherwise null.
+   */
+  public static function defaultFrontendOrigin(): ?string {
+    $urls = self::readSetting('HASHTOPOLIS_FRONTEND_URLS');
+    if ($urls !== null) {
+      foreach (explode(',', $urls) as $entry) {
+        if (trim($entry) === "") {
+          continue;
+        }
+        $parsed = self::parseOrigin($entry);
+        return $parsed === null ? null : self::formatOrigin($parsed);
+      }
+    }
+
+    $backendUrl = self::readSetting('HASHTOPOLIS_BACKEND_URL');
+    $port = self::readSetting('HASHTOPOLIS_FRONTEND_PORT');
+    if ($backendUrl === null || $port === null || !ctype_digit($port)) {
+      return null;
+    }
+    $backend = self::parseOrigin($backendUrl);
+
+    return $backend === null ? null : self::formatOrigin(['scheme' => $backend['scheme'], 'host' => $backend['host'], 'port' => (int)$port]);
+  }
+
+  /**
+   * @param array{scheme: string, host: string, port: int} $origin
+   */
+  private static function formatOrigin(array $origin): string {
+    $default = $origin['scheme'] === 'https' ? 443 : 80;
+
+    return $origin['scheme'] . '://' . $origin['host'] . ($origin['port'] === $default ? '' : ':' . $origin['port']);
+  }
+
+  /**
+   * @param array{scheme: string, host: string, port: int} $origin
+   * @param list<array{scheme: string, host: string, port: int}> $allowed
+   */
+  private static function matchesAllowed(array $origin, array $allowed): bool {
+    foreach ($allowed as $candidate) {
+      if (self::originsMatch($origin, $candidate)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**

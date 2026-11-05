@@ -77,13 +77,24 @@ class RefreshTokenCookie {
       "HttpOnly",
       "SameSite=" . $sameSite,
     ];
-    /* SameSite=None is only honoured on cookies which are also Secure, so the two cannot be
-       configured against each other without the browser silently dropping the cookie. */
-    if (self::isSecure($request) || $sameSite === "None") {
+    if (self::secureFlag($request, $sameSite)) {
       $parts[] = "Secure";
     }
     
     return implode("; ", $parts);
+  }
+  
+  /**
+   * Whether a cookie with the given SameSite value gets the Secure attribute. SameSite=None is only
+   * honoured on cookies which are also Secure, so the two cannot be configured against each other
+   * without the browser silently dropping the cookie. Shared with the other cookies set at login.
+   *
+   * @param Request $request
+   * @param string $sameSite
+   * @return bool
+   */
+  public static function secureFlag(Request $request, string $sameSite): bool {
+    return self::isSecure($request) || $sameSite === "None";
   }
   
   /**

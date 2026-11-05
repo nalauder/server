@@ -678,4 +678,64 @@ final class CorsHackMiddlewareTest extends TestCase {
     $this->assertSame("*", $response->getHeaderLine("Access-Control-Allow-Origin"));
     $this->assertSame("", $response->getHeaderLine("Access-Control-Allow-Credentials"));
   }
+
+  public function testIsTrustedOriginAcceptsConfiguredFrontend(): void {
+    putenv("HASHTOPOLIS_BACKEND_URL=https://hashtopolis.example.com");
+    putenv("HASHTOPOLIS_FRONTEND_URLS=https://app.example.com,http://localhost:4200");
+
+    $this->assertTrue(CorsHackMiddleware::isTrustedOrigin("https://app.example.com"));
+    $this->assertTrue(CorsHackMiddleware::isTrustedOrigin("https://APP.example.com:443"));
+    $this->assertTrue(CorsHackMiddleware::isTrustedOrigin("http://127.0.0.1:4200"));
+    $this->assertTrue(CorsHackMiddleware::isTrustedOrigin("https://hashtopolis.example.com"));
+    // a lone trailing slash is tolerated, as the CORS check ignores the path
+    $this->assertTrue(CorsHackMiddleware::isTrustedOrigin("https://app.example.com/"));
+  }
+
+  public function testIsTrustedOriginRejectsOther(): void {
+    putenv("HASHTOPOLIS_BACKEND_URL=https://hashtopolis.example.com");
+    putenv("HASHTOPOLIS_FRONTEND_URLS=https://app.example.com");
+
+    $this->assertFalse(CorsHackMiddleware::isTrustedOrigin("https://evil.test"));
+    $this->assertFalse(CorsHackMiddleware::isTrustedOrigin("https://app.example.com.evil.test"));
+    $this->assertFalse(CorsHackMiddleware::isTrustedOrigin("http://app.example.com"));
+    $this->assertFalse(CorsHackMiddleware::isTrustedOrigin("https://app.example.com:8443"));
+    $this->assertFalse(CorsHackMiddleware::isTrustedOrigin("javascript:alert(1)"));
+    $this->assertFalse(CorsHackMiddleware::isTrustedOrigin(""));
+  }
+
+  public function testIsTrustedOriginRejectsWithoutConfiguration(): void {
+    $this->assertFalse(CorsHackMiddleware::isTrustedOrigin("https://app.example.com"));
+  }
+
+  public function testIsTrustedOriginRejectsOriginWithPath(): void {
+    putenv("HASHTOPOLIS_FRONTEND_URLS=https://app.example.com");
+
+    $this->assertFalse(CorsHackMiddleware::isTrustedOrigin("https://app.example.com/login"));
+    $this->assertFalse(CorsHackMiddleware::isTrustedOrigin("https://app.example.com/?x=1"));
+    $this->assertFalse(CorsHackMiddleware::isTrustedOrigin("https://app.example.com?x=1"));
+    $this->assertFalse(CorsHackMiddleware::isTrustedOrigin("https://app.example.com#frag"));
+    $this->assertFalse(CorsHackMiddleware::isTrustedOrigin("https://user@app.example.com"));
+    $this->assertFalse(CorsHackMiddleware::isTrustedOrigin("https://evil.test@app.example.com"));
+  }
+
+  public function testDefaultFrontendOriginPrefersFrontendUrls(): void {
+    putenv("HASHTOPOLIS_BACKEND_URL=https://hashtopolis.example.com");
+    putenv("HASHTOPOLIS_FRONTEND_PORT=4200");
+    putenv("HASHTOPOLIS_FRONTEND_URLS=https://app.example.com:8443, https://other.example.com");
+
+    $this->assertSame("https://app.example.com:8443", CorsHackMiddleware::defaultFrontendOrigin());
+  }
+
+  public function testDefaultFrontendOriginFromPort(): void {
+    putenv("HASHTOPOLIS_BACKEND_URL=http://localhost:8080/api/v2");
+    putenv("HASHTOPOLIS_FRONTEND_PORT=4200");
+
+    $this->assertSame("http://localhost:4200", CorsHackMiddleware::defaultFrontendOrigin());
+  }
+
+  public function testDefaultFrontendOriginNullWhenNothingConfigured(): void {
+    $this->assertNull(CorsHackMiddleware::defaultFrontendOrigin());
+    putenv("HASHTOPOLIS_FRONTEND_PORT=4200");
+    $this->assertNull(CorsHackMiddleware::defaultFrontendOrigin());
+  }
 }
