@@ -19,6 +19,13 @@ services:
       # The background job runner is invoked explicitly by the test suite for deterministic
       # results, therefore the entrypoint scheduler loop is disabled in the test container.
       HASHTOPOLIS_CRON_ENABLE: 0
+      # OIDC single sign-on against the dev Keycloak below.
+      # ALLOW_INSECURE_HTTP permits http:// provider URLs and is for development/testing ONLY.
+      HASHTOPOLIS_OIDC_ISSUER: http://keycloak:8180/realms/hashtopolis
+      HASHTOPOLIS_OIDC_CLIENT_ID: hashtopolis
+      HASHTOPOLIS_OIDC_CLIENT_SECRET: dev-only-secret
+      HASHTOPOLIS_OIDC_DISPLAY_NAME: Keycloak
+      HASHTOPOLIS_OIDC_ALLOW_INSECURE_HTTP: "true"
     depends_on:
       - hashtopolis-db-dev
     ports:
@@ -42,6 +49,20 @@ services:
     networks:
       - hashtopolis_dev
 
+  keycloak:
+    container_name: keycloak
+    image: quay.io/keycloak/keycloak:26.0.7
+    command: start-dev --import-realm --http-port=8180
+    environment:
+      KC_HOSTNAME: http://keycloak:8180
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+    ports:
+      - "8180:8180"
+    volumes:
+      - ../.devcontainer/keycloak:/opt/keycloak/data/import:ro
+    networks:
+      - hashtopolis_dev
 volumes:
   hashtopolis-db-dev:
   hashtopolis-server-dev:
