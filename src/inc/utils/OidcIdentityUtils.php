@@ -54,17 +54,34 @@ class OidcIdentityUtils {
       $saved = Factory::getOidcIdentityFactory()->save($identity);
     }
     catch (PDOException $e) {
-      // A concurrent insert may have won the unique (issuer, subject) key
-      $existing = self::find($claims->issuer, $claims->subject);
-      if ($existing === null) {
-        throw $e;
-      }
-      return self::sameOwnerOrThrow($existing, $userId);
+      return self::resolveInsertFailure($userId, $claims, $e);
     }
     if (!$saved instanceof OidcIdentity) {
       throw new Exception("Could not store the OIDC identity");
     }
     return $saved;
+  }
+  
+  /**
+   * Handles a failed insert. If it was a unique-key collision (a concurrent insert won), the row
+   * is re-read: the same user gets it back, another user gets OidcAlreadyLinkedException. Any
+   * other failure is rethrown.
+   *
+   * @internal public only so tests can reach it
+   * @throws OidcAlreadyLinkedException
+   * @throws PDOException
+   * @throws Exception
+   */
+  public static function resolveInsertFailure(int $userId, OidcClaims $claims, PDOException $e): OidcIdentity {
+    $sqlState = (string)($e->errorInfo[0] ?? $e->getCode());
+    if (!str_starts_with($sqlState, '23')) {
+      throw $e;
+    }
+    $existing = self::find($claims->issuer, $claims->subject);
+    if ($existing === null) {
+      throw $e;
+    }
+    return self::sameOwnerOrThrow($existing, $userId);
   }
   
   /**
@@ -98,12 +115,13 @@ class OidcIdentityUtils {
    * @throws Exception
    */
   public static function unlink(int $userId, int $identityId): bool {
-    $identity = Factory::getOidcIdentityFactory()->get($identityId);
-    if (!$identity instanceof OidcIdentity || $identity->getUserId() !== $userId) {
-      return false;
-    }
-    Factory::getOidcIdentityFactory()->delete($identity);
-    return true;
+    $stmt = Factory::getOidcIdentityFactory()->massDeletion([
+      Factory::FILTER => [
+        new QueryFilter(OidcIdentity::OIDC_IDENTITY_ID, $identityId, "="),
+        new QueryFilter(OidcIdentity::USER_ID, $userId, "=")
+      ]
+    ]);
+    return $stmt->rowCount() > 0;
   }
   
   /**

@@ -9,6 +9,7 @@ use Hashtopolis\dba\QueryFilter;
 use Hashtopolis\inc\apiv2\auth\oidc\OidcAlreadyLinkedException;
 use Hashtopolis\inc\apiv2\auth\oidc\OidcClaims;
 use Hashtopolis\TestBase;
+use PDOException;
 
 require_once(dirname(__FILE__) . '/../../TestBase.php');
 require_once(dirname(__FILE__) . '/../../../../src/inc/startup/include.php');
@@ -169,5 +170,35 @@ final class OidcIdentityUtilsTest extends TestBase {
     $this->assertGreaterThanOrEqual($before, $identity->getLastUsedAt());
     $stored = OidcIdentityUtils::find($claims->issuer, $claims->subject);
     $this->assertGreaterThanOrEqual($before, $stored->getLastUsedAt());
+  }
+  
+  /**
+   * @throws Exception
+   */
+  public function testInsertCollisionResolvesByOwner(): void {
+    $alice = $this->createUser('oidc_a');
+    $bob = $this->createUser('oidc_b');
+    $claims = new OidcClaims(self::ISSUER, 'sub-' . uniqid(), 'alice');
+    $row = $this->link($alice->getId(), $claims);
+    $collision = new PDOException('Duplicate entry');
+    $collision->errorInfo = ['23000', 1062, 'Duplicate entry'];
+    
+    $this->assertSame($row->getId(), OidcIdentityUtils::resolveInsertFailure($alice->getId(), $claims, $collision)->getId());
+    $this->expectException(OidcAlreadyLinkedException::class);
+    OidcIdentityUtils::resolveInsertFailure($bob->getId(), $claims, $collision);
+  }
+  
+  /**
+   * @throws Exception
+   */
+  public function testNonConstraintInsertFailureIsRethrown(): void {
+    $user = $this->createUser('oidc_x');
+    $claims = new OidcClaims(self::ISSUER, 'sub-' . uniqid(), 'alice');
+    $this->link($user->getId(), $claims);
+    $other = new PDOException('Connection lost');
+    $other->errorInfo = ['HY000', 2006, 'gone'];
+    
+    $this->expectException(PDOException::class);
+    OidcIdentityUtils::resolveInsertFailure($user->getId(), $claims, $other);
   }
 }
