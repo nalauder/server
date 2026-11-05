@@ -462,6 +462,33 @@ $CONF['NotificationSetting'] = [
     ['name' => 'isActive', 'read_only' => False, 'type' => 'bool'],
   ],
 ];
+$CONF['OidcAuthRequest'] = [
+  'columns' => [
+    ['name' => 'oidcAuthRequestId', 'read_only' => True, 'type' => 'int', 'protected' => True],
+    ['name' => 'stateHash', 'read_only' => True, 'type' => 'str(64)', 'protected' => True, 'private' => True],
+    ['name' => 'purpose', 'read_only' => True, 'type' => 'str(16)', 'protected' => True],
+    ['name' => 'userId', 'read_only' => True, 'null' => True, 'type' => 'int', 'protected' => True],
+    ['name' => 'codeVerifier', 'read_only' => True, 'null' => True, 'type' => 'str(128)', 'protected' => True, 'private' => True],
+    ['name' => 'nonce', 'read_only' => True, 'null' => True, 'type' => 'str(64)', 'protected' => True],
+    ['name' => 'returnTo', 'read_only' => True, 'type' => 'str(255)', 'protected' => True],
+    ['name' => 'issuer', 'read_only' => True, 'null' => True, 'type' => 'str(255)', 'protected' => True],
+    ['name' => 'subject', 'read_only' => True, 'null' => True, 'type' => 'str(255)', 'protected' => True],
+    ['name' => 'label', 'read_only' => True, 'null' => True, 'type' => 'str(255)', 'protected' => True],
+    ['name' => 'expiresAt', 'read_only' => True, 'type' => 'int64', 'protected' => True],
+    ['name' => 'usedAt', 'read_only' => True, 'null' => True, 'type' => 'int64', 'protected' => True],
+  ],
+];
+$CONF['OidcIdentity'] = [
+  'columns' => [
+    ['name' => 'oidcIdentityId', 'read_only' => True, 'type' => 'int', 'protected' => True],
+    ['name' => 'userId', 'read_only' => True, 'type' => 'int', 'relation' => 'User'],
+    ['name' => 'issuer', 'read_only' => True, 'type' => 'str(255)'],
+    ['name' => 'subject', 'read_only' => True, 'type' => 'str(255)', 'protected' => True],
+    ['name' => 'label', 'read_only' => False, 'type' => 'str(255)'],
+    ['name' => 'createdAt', 'read_only' => True, 'type' => 'int64'],
+    ['name' => 'lastUsedAt', 'read_only' => False, 'null' => True, 'type' => 'int64'],
+  ],
+];
 $CONF['Preprocessor'] = [
   'columns' => [
     ['name' => 'preprocessorId', 'read_only' => True, 'type' => 'int', 'protected' => True],

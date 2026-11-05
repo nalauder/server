@@ -29,6 +29,8 @@ use Hashtopolis\dba\models\HealthCheckAgentFactory;
 use Hashtopolis\dba\models\JwtApiKeyFactory;
 use Hashtopolis\dba\models\LogEntryFactory;
 use Hashtopolis\dba\models\NotificationSettingFactory;
+use Hashtopolis\dba\models\OidcAuthRequestFactory;
+use Hashtopolis\dba\models\OidcIdentityFactory;
 use Hashtopolis\dba\models\PreprocessorFactory;
 use Hashtopolis\dba\models\PretaskFactory;
 use Hashtopolis\dba\models\RefreshTokenFactory;
@@ -81,6 +83,8 @@ class Factory {
   private static ?JwtApiKeyFactory $jwtApiKeyFactory = null;
   private static ?LogEntryFactory $logEntryFactory = null;
   private static ?NotificationSettingFactory $notificationSettingFactory = null;
+  private static ?OidcAuthRequestFactory $oidcAuthRequestFactory = null;
+  private static ?OidcIdentityFactory $oidcIdentityFactory = null;
   private static ?PreprocessorFactory $preprocessorFactory = null;
   private static ?PretaskFactory $pretaskFactory = null;
   private static ?RefreshTokenFactory $refreshTokenFactory = null;
@@ -372,6 +376,26 @@ class Factory {
       return $f;
     } else {
       return self::$notificationSettingFactory;
+    }
+  }
+  
+  public static function getOidcAuthRequestFactory(): OidcAuthRequestFactory {
+    if (self::$oidcAuthRequestFactory == null) {
+      $f = new OidcAuthRequestFactory();
+      self::$oidcAuthRequestFactory = $f;
+      return $f;
+    } else {
+      return self::$oidcAuthRequestFactory;
+    }
+  }
+  
+  public static function getOidcIdentityFactory(): OidcIdentityFactory {
+    if (self::$oidcIdentityFactory == null) {
+      $f = new OidcIdentityFactory();
+      self::$oidcIdentityFactory = $f;
+      return $f;
+    } else {
+      return self::$oidcIdentityFactory;
     }
   }
   
