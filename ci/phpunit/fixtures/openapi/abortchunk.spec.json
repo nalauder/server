@@ -321,7 +321,7 @@
                     "Login"
                 ],
                 "summary": "Redirect target of the identity provider",
-                "description": "Public. Register this URL as the redirect URI with the provider. Needs the oidcState cookie. Always answers with a redirect to the frontend, which carries only a reason code on failure.",
+                "description": "Public. Register this URL as the redirect URI with the provider. Needs the oidcState cookie. Redirects to the frontend, carrying only a reason code on failure, except 400 when no frontend origin is configured and the request is unknown or fails.",
                 "parameters": [
                     {
                         "name": "code",
