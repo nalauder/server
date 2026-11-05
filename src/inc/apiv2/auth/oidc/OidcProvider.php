@@ -26,6 +26,11 @@ class OidcProvider {
   /** @var array<mixed>|null */
   private ?array $discovery = null;
 
+  /**
+   * @param OidcConfig $config
+   * @param OidcHttpClient $http
+   * @param string $cacheDir directory for the cached discovery document and JWKS
+   */
   public function __construct(
     private readonly OidcConfig $config,
     private readonly OidcHttpClient $http,
@@ -90,7 +95,7 @@ class OidcProvider {
   }
 
   /**
-   * Verifies the ID token's signature and claims (spec §6) and returns the asserted identity.
+   * Verifies the ID token's signature and claims (issuer, audience, expiry, nonce) and returns the asserted identity.
    *
    * @throws OidcException
    */
@@ -126,6 +131,9 @@ class OidcProvider {
     }
   }
 
+  /**
+   * @return int the current Unix time
+   */
   private function now(): int {
     // JWT::$timestamp is php-jwt's clock override; using it here keeps one clock for tokens and cache.
     return JWT::$timestamp ?? time();
@@ -143,6 +151,14 @@ class OidcProvider {
     return $url;
   }
 
+  /**
+   * Whether a URL taken from the discovery document may be contacted: it needs a host and must be https,
+   * or http when insecure HTTP is explicitly allowed. This keeps a hostile or broken discovery document from
+   * steering requests to other schemes.
+   *
+   * @param string $url
+   * @return bool
+   */
   private function isAllowedUrl(string $url): bool {
     $scheme = strtolower((string)parse_url($url, PHP_URL_SCHEME));
     $host = parse_url($url, PHP_URL_HOST);
@@ -343,6 +359,10 @@ class OidcProvider {
     return new OidcClaims($payload->iss, $payload->sub, $label);
   }
 
+  /**
+   * @param string $kind cache entry name, e.g. discovery or jwks
+   * @return string the cache file path, specific to the configured issuer
+   */
   private function cacheFile(string $kind): string {
     return $this->cacheDir . '/' . $kind . '-' . hash('sha256', $this->config->getIssuer()) . '.json';
   }

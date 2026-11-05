@@ -25,10 +25,22 @@ class OidcAuthRequestUtils {
   const PURPOSE_LINK = 'link';
   const PURPOSE_PENDING_LINK = 'pending_link';
   
+  /**
+   * Only the hash of a state is stored, so a copy of the table cannot be used to complete a login.
+   *
+   * @param string $state
+   * @return string
+   */
   private static function hashState(string $state): string {
     return hash("sha256", $state);
   }
   
+  /**
+   * Base64 with the URL-safe alphabet and no padding, as PKCE requires.
+   *
+   * @param string $raw
+   * @return string
+   */
   private static function base64Url(string $raw): string {
     return rtrim(strtr(base64_encode($raw), '+/', '-_'), '=');
   }

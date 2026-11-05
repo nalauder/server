@@ -28,6 +28,11 @@ final class OidcConfig {
     }
   }
 
+  /**
+   * Builds the configuration from the process environment.
+   *
+   * @return OidcConfig
+   */
   public static function fromEnvironment(): OidcConfig {
     $names = [
       'HASHTOPOLIS_OIDC_ISSUER',
@@ -49,6 +54,11 @@ final class OidcConfig {
     return new OidcConfig($settings);
   }
 
+  /**
+   * The shared configuration, read from the environment on first use.
+   *
+   * @return OidcConfig
+   */
   public static function get(): OidcConfig {
     if (self::$instance === null) {
       self::$instance = self::fromEnvironment();
@@ -56,14 +66,30 @@ final class OidcConfig {
     return self::$instance;
   }
 
+  /**
+   * Replaces the shared configuration. A hook for tests; pass null to have the next get() re-read the environment.
+   *
+   * @param OidcConfig|null $c
+   */
   public static function setInstance(?OidcConfig $c): void {
     self::$instance = $c;
   }
 
+  /**
+   * @param string $name environment variable name
+   * @param string $default returned when the variable is unset or empty
+   * @return string
+   */
   private function value(string $name, string $default = ""): string {
     return $this->settings[$name] ?? $default;
   }
 
+  /**
+   * Whether single sign-on is configured: needs the issuer, client ID and client secret. A partial setup
+   * logs one warning and counts as disabled.
+   *
+   * @return bool
+   */
   public function isEnabled(): bool {
     if ($this->value('HASHTOPOLIS_OIDC_ISSUER') === "") {
       return false;
@@ -78,6 +104,12 @@ final class OidcConfig {
     return true;
   }
 
+  /**
+   * Whether password login is allowed. HASHTOPOLIS_LOCAL_LOGIN_ENABLED=false only takes effect while single
+   * sign-on is enabled, so a misconfiguration cannot lock everyone out.
+   *
+   * @return bool
+   */
   public function isLocalLoginEnabled(): bool {
     $setting = strtolower($this->value('HASHTOPOLIS_LOCAL_LOGIN_ENABLED'));
     if ($setting !== "false" && $setting !== "0") {
@@ -93,31 +125,58 @@ final class OidcConfig {
     return false;
   }
 
+  /**
+   * @return string the issuer URL of the OIDC provider
+   */
   public function getIssuer(): string {
     // Kept exactly as configured (whitespace aside): some issuers end in "/" and iss is compared exactly.
     return $this->value('HASHTOPOLIS_OIDC_ISSUER');
   }
 
+  /**
+   * @return string the client ID registered with the provider
+   */
   public function getClientId(): string {
     return $this->value('HASHTOPOLIS_OIDC_CLIENT_ID');
   }
 
+  /**
+   * @return string the client secret registered with the provider
+   */
   public function getClientSecret(): string {
     return $this->value('HASHTOPOLIS_OIDC_CLIENT_SECRET');
   }
 
+  /**
+   * @return string the space-separated scopes to request, "openid profile email" by default
+   */
   public function getScopes(): string {
     return $this->value('HASHTOPOLIS_OIDC_SCOPES', 'openid profile email');
   }
 
+  /**
+   * @return string the name shown on the sign-in button, "SSO" by default
+   */
   public function getDisplayName(): string {
     return $this->value('HASHTOPOLIS_OIDC_DISPLAY_NAME', 'SSO');
   }
 
+  /**
+   * Whether plain http:// provider URLs are accepted. Meant for development against a local provider;
+   * anything but the exact value "true" keeps HTTPS mandatory.
+   *
+   * @return bool
+   */
   public function allowsInsecureHttp(): bool {
     return strtolower($this->value('HASHTOPOLIS_OIDC_ALLOW_INSECURE_HTTP')) === "true";
   }
 
+  /**
+   * The callback URL to register with the provider as the redirect URI: the backend URL
+   * (HASHTOPOLIS_BACKEND_URL) without a trailing slash, followed by /auth/oidc/callback.
+   *
+   * @return string
+   */
   public function getRedirectUri(): string {
     return rtrim($this->value('HASHTOPOLIS_BACKEND_URL'), '/') . '/auth/oidc/callback';
   }

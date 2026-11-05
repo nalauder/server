@@ -33,6 +33,14 @@ class OidcStateCookie {
     return preg_match('/^[0-9a-f]{64}$/D', $value) === 1 ? $value : null;
   }
   
+  /**
+   * Sets the state cookie on the response.
+   *
+   * @param Request $request the request being answered, used to decide on the Secure flag
+   * @param Response $response
+   * @param string $state the state value sent to the provider
+   * @return Response
+   */
   public static function attach(Request $request, Response $response, string $state): Response {
     return $response->withAddedHeader("Set-Cookie", self::build($request, $state, self::MAX_AGE));
   }
@@ -44,6 +52,12 @@ class OidcStateCookie {
     return $response->withAddedHeader("Set-Cookie", self::build($request, "", 0));
   }
   
+  /**
+   * @param Request $request
+   * @param string $value the state, or an empty string when clearing
+   * @param int $maxAge lifetime in seconds, 0 to expire the cookie
+   * @return string the Set-Cookie header value
+   */
   private static function build(Request $request, string $value, int $maxAge): string {
     $sameSite = StartupConfig::getInstance()->getRefreshCookieSameSite() === "None" ? "None" : "Lax";
     

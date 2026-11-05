@@ -11,10 +11,15 @@ use Slim\Routing\RouteCollectorProxy;
 require_once(dirname(__FILE__) . "/../../startup/include.php");
 
 /*
- * OpenID Connect single sign-on, spec §7. The handlers live in OidcController; config, login and
+ * OpenID Connect single sign-on (see doc/installation_guidelines/oidc-sso.md). The handlers live in OidcController; config, login and
  * callback are public (see the JWT ignore list in api/v2/index.php), the rest need an access token.
  */
 
+/**
+ * Builds the controller for this request from the environment configuration.
+ *
+ * @return OidcController
+ */
 function oidcController(): OidcController {
   $config = OidcConfig::get();
   return new OidcController($config, OidcProvider::fromConfig($config));

@@ -26,7 +26,7 @@ use Psr\Http\Message\ServerRequestInterface as Request;
 use Throwable;
 
 /**
- * Handlers behind /api/v2/auth/oidc/... (spec §7 and §8). The route file only wires these up, so the
+ * Handlers behind /api/v2/auth/oidc/... (see doc/installation_guidelines/oidc-sso.md). The route file only wires these up, so the
  * handlers can be driven directly with a provider on a fake HTTP client.
  *
  * Browser-facing failures never carry details: the redirect names a reason code and the details go
@@ -45,6 +45,10 @@ class OidcController {
   private const SETTINGS_PAGE = '/account/acc-settings';
   private const SSO_LANDING_PAGE = '/auth/sso';
 
+  /**
+   * @param OidcConfig $config
+   * @param OidcProvider $provider the provider to talk to; tests pass one on a fake HTTP client
+   */
   public function __construct(
     private readonly OidcConfig $config,
     private readonly OidcProvider $provider
@@ -127,8 +131,8 @@ class OidcController {
   }
 
   /**
-   * GET callback. Finishes a login or link request; always answers with a redirect (spec §8), or 400
-   * when no request matches and no frontend origin is configured to send the browser to.
+   * GET callback. Finishes a login or link request; answers with a redirect to the frontend, except 400 when no
+   * frontend origin is configured to send the browser to and the request cannot be matched or fails.
    *
    * @throws ResourceNotFoundError
    * @throws Exception
@@ -414,6 +418,13 @@ class OidcController {
     }
   }
 
+  /**
+   * Writes a log entry, attributed to the user when a user ID is known and to the API otherwise.
+   *
+   * @param int|null $userId
+   * @param string $level a DLogEntry level
+   * @param string $message must not contain tokens, codes or secrets
+   */
   protected function log(?int $userId, string $level, string $message): void {
     if ($userId === null) {
       Util::createLogEntry(DLogEntryIssuer::API, self::LOG_ISSUER_ID, $level, $message);
@@ -422,6 +433,13 @@ class OidcController {
     Util::createLogEntry(DLogEntryIssuer::USER, (string)$userId, $level, $message);
   }
 
+  /**
+   * Answers with a 302 redirect.
+   *
+   * @param Response $response
+   * @param string $location
+   * @return Response
+   */
   protected function redirect(Response $response, string $location): Response {
     return $response->withStatus(302)->withHeader('Location', $location);
   }

@@ -11,18 +11,40 @@ use JsonException;
 final class CurlOidcHttpClient implements OidcHttpClient {
   private const TIMEOUT_SECONDS = 10;
 
+  /**
+   * @param bool $allowInsecureHttp whether plain http:// URLs are accepted besides https://; for development against a local provider only
+   */
   public function __construct(private readonly bool $allowInsecureHttp) {
   }
 
+  /**
+   * Fetches a URL with GET.
+   *
+   * @param string $url
+   * @return array<mixed> the decoded JSON object
+   * @throws OidcException on a refused URL, transport failure, non-2xx status or a body that is not a JSON object
+   */
   public function getJson(string $url): array {
     return $this->request($url, null);
   }
 
+  /**
+   * Posts form fields (application/x-www-form-urlencoded) to a URL.
+   *
+   * @param string $url
+   * @param array<string, string> $fields
+   * @return array<mixed> the decoded JSON object
+   * @throws OidcException on a refused URL, transport failure, non-2xx status or a body that is not a JSON object
+   */
   public function postForm(string $url, array $fields): array {
     return $this->request($url, $fields);
   }
 
   /**
+   * Performs the request. The URL scheme is checked before anything is sent, so a refused URL costs no
+   * network access.
+   *
+   * @param string $url
    * @param array<string, string>|null $fields POST body, or null for GET
    * @return array<mixed>
    * @throws OidcException
