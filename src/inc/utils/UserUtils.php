@@ -15,6 +15,7 @@ use Hashtopolis\dba\models\NotificationSetting;
 use Hashtopolis\dba\models\Agent;
 use Hashtopolis\dba\Factory;
 use Hashtopolis\dba\models\JwtApiKey;
+use Hashtopolis\dba\models\OidcIdentity;
 use Hashtopolis\inc\apiv2\error\HttpConflict;
 use Hashtopolis\inc\apiv2\error\HttpError;
 use Hashtopolis\inc\apiv2\error\InternalError;
@@ -68,6 +69,8 @@ class UserUtils {
     Factory::getSessionFactory()->massDeletion([Factory::FILTER => $qF]);
     // Refresh tokens reference the user row, so they have to go before it does
     RefreshTokenUtils::deleteAllForUser($user->getId());
+    $qF = new QueryFilter(OidcIdentity::USER_ID, $user->getId(), "=");
+    Factory::getOidcIdentityFactory()->massDeletion([Factory::FILTER => $qF]);
     $qF = new QueryFilter(AccessGroupUser::USER_ID, $user->getId(), "=");
     Factory::getAccessGroupUserFactory()->massDeletion([Factory::FILTER => $qF]);
     $qF = new QueryFilter(JwtApiKey::USER_ID, $user->getId(), "=");
