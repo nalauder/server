@@ -9,6 +9,7 @@ use Hashtopolis\dba\models\OidcIdentity;
 use Hashtopolis\dba\QueryFilter;
 use Hashtopolis\dba\UpdateSet;
 use Hashtopolis\inc\apiv2\auth\oidc\OidcClaims;
+use Hashtopolis\inc\jobs\BackgroundJobRunner;
 use Hashtopolis\TestBase;
 
 require_once(dirname(__FILE__) . '/../../TestBase.php');
@@ -127,6 +128,22 @@ final class OidcAuthRequestUtilsTest extends TestBase {
     $this->assertNotNull($factory->get($unused['request']->getId()));
   }
 
+  public function testBackgroundJobRunnerDeletesStaleRows(): void {
+    // create() purges too, so every row is made before any of them goes stale
+    $abandoned = $this->make(OidcAuthRequestUtils::PURPOSE_PENDING_LINK, new OidcClaims('https://idp.example.test', 'sub-abandoned', 'alice@example.test'));
+    $used = $this->make();
+    $live = $this->make(OidcAuthRequestUtils::PURPOSE_PENDING_LINK, new OidcClaims('https://idp.example.test', 'sub-live', 'bob@example.test'));
+    $this->expire($abandoned['request']);
+    $this->assertNotNull(OidcAuthRequestUtils::consume($used['state'], OidcAuthRequestUtils::PURPOSE_LOGIN));
+    
+    BackgroundJobRunner::run();
+    
+    $factory = Factory::getOidcAuthRequestFactory();
+    $this->assertNull($factory->get($abandoned['request']->getId()));
+    $this->assertNull($factory->get($used['request']->getId()));
+    $this->assertNotNull($factory->get($live['request']->getId()));
+  }
+  
   public function testConsumeScrubsSensitiveColumns(): void {
     $made = $this->make(OidcAuthRequestUtils::PURPOSE_PENDING_LINK, new OidcClaims('https://idp.example.test', 'sub-1', 'alice@example.test'));
     $consumed = OidcAuthRequestUtils::consume($made['state'], OidcAuthRequestUtils::PURPOSE_PENDING_LINK);

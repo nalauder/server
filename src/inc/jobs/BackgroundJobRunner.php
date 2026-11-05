@@ -10,17 +10,19 @@ use Hashtopolis\dba\UpdateSet;
 use Hashtopolis\inc\defines\DBackgroundJobStatus;
 use Hashtopolis\inc\defines\DServerLog;
 use Hashtopolis\inc\HTException;
+use Hashtopolis\inc\utils\OidcAuthRequestUtils;
 use Hashtopolis\inc\utils\Lock;
 use Hashtopolis\inc\utils\LockUtils;
 use Throwable;
 
 class BackgroundJobRunner {
   /**
-   * Processes all pending background jobs, one after another. If another run is still
-   * active, this call returns immediately without doing anything.
+   * Removes stale OIDC sign-in requests, then processes all pending background jobs, one
+   * after another. If another run is still active, no jobs are processed.
    * @throws Exception
    */
   public static function run(): void {
+    self::purgeStaleOidcRequests();
     if (!LockUtils::tryGet(Lock::BACKGROUND_JOBS)) {
       return;
     }
@@ -42,6 +44,20 @@ class BackgroundJobRunner {
     }
     finally {
       LockUtils::release(Lock::BACKGROUND_JOBS);
+    }
+  }
+  
+  /**
+   * Removes expired and used OIDC sign-in requests. Requests are otherwise only purged when someone
+   * uses single sign-on, and an abandoned pending link holds the provider identity (issuer, subject,
+   * label) that must not outlive it. A failure is logged and does not stop the job processing.
+   */
+  private static function purgeStaleOidcRequests(): void {
+    try {
+      OidcAuthRequestUtils::purgeStale();
+    }
+    catch (Throwable $t) {
+      error_log("Purging stale OIDC sign-in requests failed: " . get_class($t));
     }
   }
   
