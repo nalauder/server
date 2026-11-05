@@ -20,6 +20,8 @@ use Throwable;
 class OidcProvider {
   private const CACHE_TTL = 3600;
   private const LEEWAY = 60;
+  /** Length of the label columns (oidcIdentity and oidcAuthRequest), in characters. */
+  private const LABEL_MAX_LENGTH = 255;
   /** Only these algorithms are accepted; the algorithm is taken from the JWK, never from the token. */
   private const ALLOWED_ALGS = ['RS256' => 'RSA', 'ES256' => 'EC'];
 
@@ -356,7 +358,8 @@ class OidcProvider {
         break;
       }
     }
-    return new OidcClaims($payload->iss, $payload->sub, $label);
+    // A longer label would fail the insert and make linking impossible; it is only for display
+    return new OidcClaims($payload->iss, $payload->sub, mb_substr($label, 0, self::LABEL_MAX_LENGTH, 'UTF-8'));
   }
 
   /**

@@ -418,6 +418,13 @@ final class OidcProviderTest extends TestCase {
     $this->assertSame('subject-123', $claims->label);
   }
 
+  public function testLongLabelTruncatedToColumnLength(): void {
+    // 300 two-byte characters: a byte-based cut would leave 127 characters or split one in half
+    $claims = $this->provider()->validateIdToken($this->rsToken(['preferred_username' => str_repeat('ä', 300)]), 'the-nonce');
+    $this->assertSame(str_repeat('ä', 255), $claims->label);
+    $this->assertTrue(mb_check_encoding($claims->label, 'UTF-8'));
+  }
+
   public function testCacheReusedWithinTtl(): void {
     $this->provider()->validateIdToken($this->rsToken(), 'the-nonce');
     $this->provider()->validateIdToken($this->rsToken(), 'the-nonce');
