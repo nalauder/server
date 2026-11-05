@@ -104,7 +104,7 @@ class OidcTest(BaseTest):
         session = requests.Session()
         session.cookies.set(STATE_COOKIE, response.cookies.get(STATE_COOKIE))
         callback = hit_callback(session, provider_login(response.json()['authorizeUrl'], *ALICE))
-        self.assertRedirect(callback, 'http://127.0.0.1:4200/account/acc-settings?sso=linked')
+        self.assertRedirect(callback, 'http://127.0.0.1:4200/#/account/acc-settings?sso=linked')
 
         cross_site = requests.post(OIDC_URI + '/link', json={'password': password},
                                    headers={'Authorization': 'Bearer ' + jwt, 'Origin': 'https://evil.example.test'})
@@ -120,10 +120,10 @@ class OidcTest(BaseTest):
         user, password = self.make_user()
 
         linked = self.link(user, password)
-        self.assertRedirect(linked, DEFAULT_RETURN_TO + '/account/acc-settings?sso=linked')
+        self.assertRedirect(linked, DEFAULT_RETURN_TO + '/#/account/acc-settings?sso=linked')
 
         session, response = self.sso_login()
-        self.assertRedirect(response, DEFAULT_RETURN_TO + '/auth/sso')
+        self.assertRedirect(response, DEFAULT_RETURN_TO + '/#/auth/sso')
         self.assertIsNotNone(session.cookies.get(REFRESH_COOKIE))
 
         refreshed = session.post(REFRESH_URI)
@@ -133,15 +133,15 @@ class OidcTest(BaseTest):
     def test_link_identity_owned_by_other_user(self):
         owner, owner_password = self.make_user()
         other, other_password = self.make_user()
-        self.assertRedirect(self.link(owner, owner_password), DEFAULT_RETURN_TO + '/account/acc-settings?sso=linked')
+        self.assertRedirect(self.link(owner, owner_password), DEFAULT_RETURN_TO + '/#/account/acc-settings?sso=linked')
 
         response = self.link(other, other_password)
-        self.assertRedirect(response, DEFAULT_RETURN_TO + '/account/acc-settings?sso=error&reason=already_linked')
+        self.assertRedirect(response, DEFAULT_RETURN_TO + '/#/account/acc-settings?sso=error&reason=already_linked')
 
     def test_link_same_identity_twice_is_success(self):
         user, password = self.make_user()
-        self.assertRedirect(self.link(user, password), DEFAULT_RETURN_TO + '/account/acc-settings?sso=linked')
-        self.assertRedirect(self.link(user, password), DEFAULT_RETURN_TO + '/account/acc-settings?sso=linked')
+        self.assertRedirect(self.link(user, password), DEFAULT_RETURN_TO + '/#/account/acc-settings?sso=linked')
+        self.assertRedirect(self.link(user, password), DEFAULT_RETURN_TO + '/#/account/acc-settings?sso=linked')
 
     def test_unlinked_login_goes_to_link_required(self):
         session = requests.Session()
@@ -149,7 +149,7 @@ class OidcTest(BaseTest):
         login_state = _state_of(session)
 
         response = hit_callback(session, provider_login(url, *BOB))
-        self.assertRedirect(response, DEFAULT_RETURN_TO + '/auth?sso=link-required')
+        self.assertRedirect(response, DEFAULT_RETURN_TO + '/#/auth?sso=link-required')
         self.assertIn('oidcState=', ''.join(_set_cookies(response)))
         pending_state = _state_of(session)
         self.assertIsNotNone(pending_state)
@@ -158,12 +158,12 @@ class OidcTest(BaseTest):
 
     def test_disabled_user(self):
         user, password = self.make_user()
-        self.assertRedirect(self.link(user, password), DEFAULT_RETURN_TO + '/account/acc-settings?sso=linked')
+        self.assertRedirect(self.link(user, password), DEFAULT_RETURN_TO + '/#/account/acc-settings?sso=linked')
         user.isValid = False
         user.save()
 
         session, response = self.sso_login()
-        self.assertRedirect(response, DEFAULT_RETURN_TO + '/auth?sso=error&reason=user_disabled')
+        self.assertRedirect(response, DEFAULT_RETURN_TO + '/#/auth?sso=error&reason=user_disabled')
         self.assertNotIn(REFRESH_COOKIE + '=', ''.join(_set_cookies(response)))
         self.assertIsNone(session.cookies.get(REFRESH_COOKIE))
 
@@ -174,17 +174,17 @@ class OidcTest(BaseTest):
         callback = provider_login(url, *BOB)
 
         first = hit_callback(session, callback)
-        self.assertRedirect(first, DEFAULT_RETURN_TO + '/auth?sso=link-required')
+        self.assertRedirect(first, DEFAULT_RETURN_TO + '/#/auth?sso=link-required')
 
         # Same callback with the same cookie a second time
         replay = requests.get(get_hashtopolis_uri() + '/api/v2/auth/oidc/callback?' + callback.split('?', 1)[1],
                               cookies={STATE_COOKIE: state}, allow_redirects=False)
-        self.assertRedirect(replay, DEFAULT_RETURN_TO + '/auth?sso=error&reason=expired')
+        self.assertRedirect(replay, DEFAULT_RETURN_TO + '/#/auth?sso=error&reason=expired')
 
     def test_callback_without_cookie(self):
         url = start_login(requests.Session())
         response = hit_callback(requests.Session(), provider_login(url, *BOB))
-        self.assertRedirect(response, DEFAULT_RETURN_TO + '/auth?sso=error&reason=expired')
+        self.assertRedirect(response, DEFAULT_RETURN_TO + '/#/auth?sso=error&reason=expired')
         self.assertNotIn(STATE_COOKIE, ''.join(_set_cookies(response)))
 
     def test_provider_error_parameter(self):
@@ -193,11 +193,11 @@ class OidcTest(BaseTest):
         response = session.get(OIDC_URI + '/callback',
                                params={'error': 'access_denied', 'state': _state_of(session)},
                                allow_redirects=False)
-        self.assertRedirect(response, DEFAULT_RETURN_TO + '/auth?sso=error&reason=provider_error')
+        self.assertRedirect(response, DEFAULT_RETURN_TO + '/#/auth?sso=error&reason=provider_error')
 
     def test_latest_of_two_logins_wins(self):
         user, password = self.make_user()
-        self.assertRedirect(self.link(user, password), DEFAULT_RETURN_TO + '/account/acc-settings?sso=linked')
+        self.assertRedirect(self.link(user, password), DEFAULT_RETURN_TO + '/#/account/acc-settings?sso=linked')
 
         # A double click: two logins in the same browser, the second overwrites the first one's cookie
         session = requests.Session()
@@ -206,18 +206,18 @@ class OidcTest(BaseTest):
 
         # Completing the superseded attempt fails, but leaves the newer attempt's cookie in place
         older = hit_callback(session, provider_login(older_url, *ALICE))
-        self.assertRedirect(older, DEFAULT_RETURN_TO + '/auth?sso=error&reason=expired')
+        self.assertRedirect(older, DEFAULT_RETURN_TO + '/#/auth?sso=error&reason=expired')
         self.assertNotIn(STATE_COOKIE, ''.join(_set_cookies(older)))
 
         newer = hit_callback(session, provider_login(newer_url, *ALICE))
-        self.assertRedirect(newer, DEFAULT_RETURN_TO + '/auth/sso')
+        self.assertRedirect(newer, DEFAULT_RETURN_TO + '/#/auth/sso')
         self.assertIsNotNone(session.cookies.get(REFRESH_COOKIE))
 
     def test_list_and_unlink_identities(self):
         owner, owner_password = self.make_user()
         other, other_password = self.make_user()
-        self.assertRedirect(self.link(owner, owner_password), DEFAULT_RETURN_TO + '/account/acc-settings?sso=linked')
-        self.assertRedirect(self.link(other, other_password, BOB), DEFAULT_RETURN_TO + '/account/acc-settings?sso=linked')
+        self.assertRedirect(self.link(owner, owner_password), DEFAULT_RETURN_TO + '/#/account/acc-settings?sso=linked')
+        self.assertRedirect(self.link(other, other_password, BOB), DEFAULT_RETURN_TO + '/#/account/acc-settings?sso=linked')
         owner_auth = {'Authorization': 'Bearer ' + self.jwt_for(owner, owner_password)}
         other_auth = {'Authorization': 'Bearer ' + self.jwt_for(other, other_password)}
 
@@ -243,9 +243,9 @@ class OidcTest(BaseTest):
 
     def test_login_updates_last_used(self):
         user, password = self.make_user()
-        self.assertRedirect(self.link(user, password), DEFAULT_RETURN_TO + '/account/acc-settings?sso=linked')
+        self.assertRedirect(self.link(user, password), DEFAULT_RETURN_TO + '/#/account/acc-settings?sso=linked')
         _, response = self.sso_login()
-        self.assertRedirect(response, DEFAULT_RETURN_TO + '/auth/sso')
+        self.assertRedirect(response, DEFAULT_RETURN_TO + '/#/auth/sso')
 
         auth = {'Authorization': 'Bearer ' + self.jwt_for(user, password)}
         identity = requests.get(OIDC_URI + '/identities', headers=auth).json()['identities'][0]
@@ -256,7 +256,7 @@ class OidcTest(BaseTest):
         session = requests.Session()
         url = start_login(session)
         response = hit_callback(session, provider_login(url, *provider_user))
-        self.assertRedirect(response, DEFAULT_RETURN_TO + '/auth?sso=link-required')
+        self.assertRedirect(response, DEFAULT_RETURN_TO + '/#/auth?sso=link-required')
         return session
 
     def link_pending(self, session, username, password):
@@ -277,7 +277,7 @@ class OidcTest(BaseTest):
 
         # The identity is linked now, so the next SSO login goes straight in
         _, login = self.sso_login(BOB)
-        self.assertRedirect(login, DEFAULT_RETURN_TO + '/auth/sso')
+        self.assertRedirect(login, DEFAULT_RETURN_TO + '/#/auth/sso')
         auth = {'Authorization': 'Bearer ' + self.jwt_for(user, password)}
         identities = requests.get(OIDC_URI + '/identities', headers=auth).json()['identities']
         self.assertEqual([i['label'] for i in identities], ['bob'])
@@ -337,7 +337,7 @@ class OidcTest(BaseTest):
     def test_link_pending_identity_owned_by_other_user_409(self):
         owner, owner_password = self.make_user()
         other, other_password = self.make_user()
-        self.assertRedirect(self.link(owner, owner_password, BOB), DEFAULT_RETURN_TO + '/account/acc-settings?sso=linked')
+        self.assertRedirect(self.link(owner, owner_password, BOB), DEFAULT_RETURN_TO + '/#/account/acc-settings?sso=linked')
         # BOB is linked, so a login would not be pending; start the pending request before the link instead
         session = requests.Session()
         url = start_login(session)
@@ -346,8 +346,8 @@ class OidcTest(BaseTest):
         auth = {'Authorization': 'Bearer ' + self.jwt_for(owner, owner_password)}
         identity = requests.get(OIDC_URI + '/identities', headers=auth).json()['identities'][0]
         requests.delete(f"{OIDC_URI}/identities/{identity['id']}", headers=auth)
-        self.assertRedirect(hit_callback(session, callback), DEFAULT_RETURN_TO + '/auth?sso=link-required')
-        self.assertRedirect(self.link(owner, owner_password, BOB), DEFAULT_RETURN_TO + '/account/acc-settings?sso=linked')
+        self.assertRedirect(hit_callback(session, callback), DEFAULT_RETURN_TO + '/#/auth?sso=link-required')
+        self.assertRedirect(self.link(owner, owner_password, BOB), DEFAULT_RETURN_TO + '/#/account/acc-settings?sso=linked')
 
         response = self.link_pending(session, other.name, other_password)
         self.assertEqual(response.status_code, 409, msg=response.text)

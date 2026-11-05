@@ -156,7 +156,7 @@ final class OidcCallbackTest extends TestBase {
     $response = $this->runCallback(['code' => self::CODE, 'state' => $state], $state);
 
     $this->assertSame(302, $response->getStatusCode());
-    $this->assertSame(self::RETURN_TO . '/auth?sso=error&reason=provider_error', $response->getHeaderLine('Location'));
+    $this->assertSame(self::RETURN_TO . '/#/auth?sso=error&reason=provider_error', $response->getHeaderLine('Location'));
     $this->assertStringStartsWith('oidcState=; ', $response->getHeaderLine('Set-Cookie'));
     $this->assertStringNotContainsString('refreshToken', $response->getHeaderLine('Set-Cookie'));
     $this->assertProviderErrorLogged();
@@ -168,7 +168,7 @@ final class OidcCallbackTest extends TestBase {
 
     $response = $this->runCallback(['code' => self::CODE, 'state' => $state], $state);
 
-    $this->assertSame(self::RETURN_TO . '/account/acc-settings?sso=error&reason=provider_error', $response->getHeaderLine('Location'));
+    $this->assertSame(self::RETURN_TO . '/#/account/acc-settings?sso=error&reason=provider_error', $response->getHeaderLine('Location'));
     $this->assertProviderErrorLogged();
   }
 
@@ -179,7 +179,7 @@ final class OidcCallbackTest extends TestBase {
     $response = $this->runCallback(['code' => self::CODE, 'state' => $state], $other);
 
     $this->assertSame(302, $response->getStatusCode());
-    $this->assertStringEndsWith('/auth?sso=error&reason=expired', $response->getHeaderLine('Location'));
+    $this->assertStringEndsWith('/#/auth?sso=error&reason=expired', $response->getHeaderLine('Location'));
     $this->assertSame('', $response->getHeaderLine('Set-Cookie'), 'the cookie of the other attempt is left alone');
     $this->assertNotNull(OidcAuthRequestUtils::peek($state, OidcAuthRequestUtils::PURPOSE_LOGIN), 'a mismatch does not use up the request');
   }
@@ -189,7 +189,7 @@ final class OidcCallbackTest extends TestBase {
 
     $response = $this->runCallback(['code' => self::CODE, 'state' => $state], null);
 
-    $this->assertStringEndsWith('/auth?sso=error&reason=expired', $response->getHeaderLine('Location'));
+    $this->assertStringEndsWith('/#/auth?sso=error&reason=expired', $response->getHeaderLine('Location'));
     $this->assertSame('', $response->getHeaderLine('Set-Cookie'));
   }
 
@@ -199,7 +199,7 @@ final class OidcCallbackTest extends TestBase {
 
     $response = $this->runCallback(['code' => self::CODE, 'state' => $state], $state);
 
-    $this->assertStringEndsWith('/auth?sso=error&reason=expired', $response->getHeaderLine('Location'));
+    $this->assertStringEndsWith('/#/auth?sso=error&reason=expired', $response->getHeaderLine('Location'));
     $this->assertStringStartsWith('oidcState=; ', $response->getHeaderLine('Set-Cookie'));
     $this->assertCount(0, $this->newLogEntries(), 'the provider is not contacted for a used request');
   }
@@ -213,7 +213,7 @@ final class OidcCallbackTest extends TestBase {
     $response = $this->controller->login($request, (new ResponseFactory())->createResponse());
 
     $this->assertSame(302, $response->getStatusCode());
-    $this->assertSame(self::RETURN_TO . '/auth?sso=error&reason=provider_error', $response->getHeaderLine('Location'));
+    $this->assertSame(self::RETURN_TO . '/#/auth?sso=error&reason=provider_error', $response->getHeaderLine('Location'));
     $this->assertStringNotContainsString('oidcState=', $response->getHeaderLine('Set-Cookie'));
     $entries = $this->newLogEntries();
     $this->assertCount(1, $entries);
@@ -233,7 +233,7 @@ final class OidcCallbackTest extends TestBase {
     $response = $controller->callback($request, (new ResponseFactory())->createResponse());
 
     $this->assertSame(302, $response->getStatusCode());
-    $this->assertSame(self::RETURN_TO . '/auth?sso=error&reason=provider_error', $response->getHeaderLine('Location'));
+    $this->assertSame(self::RETURN_TO . '/#/auth?sso=error&reason=provider_error', $response->getHeaderLine('Location'));
     $this->assertStringStartsWith('oidcState=; ', $response->getHeaderLine('Set-Cookie'));
     $entries = $this->newLogEntries();
     $this->assertCount(1, $entries);
@@ -268,7 +268,7 @@ final class OidcCallbackTest extends TestBase {
 
     $response = $controller->callback($request, (new ResponseFactory())->createResponse());
 
-    $this->assertSame(self::RETURN_TO . '/account/acc-settings?sso=error&reason=user_disabled', $response->getHeaderLine('Location'));
+    $this->assertSame(self::RETURN_TO . '/#/account/acc-settings?sso=error&reason=user_disabled', $response->getHeaderLine('Location'));
     $entries = array_values(array_filter($this->newLogEntries(), fn(LogEntry $e) => $e->getLevel() === DLogEntry::WARN));
     $this->assertCount(1, $entries);
     $this->assertSame((string)$user->getId(), (string)$entries[0]->getIssuerId());

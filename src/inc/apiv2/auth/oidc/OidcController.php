@@ -41,9 +41,12 @@ class OidcController {
   /** Log issuer ID for entries that cannot be attributed to a user yet. */
   const LOG_ISSUER_ID = 'oidc';
 
-  private const LOGIN_PAGE = '/auth';
-  private const SETTINGS_PAGE = '/account/acc-settings';
-  private const SSO_LANDING_PAGE = '/auth/sso';
+  // The web UI uses hash routing (useHash: true), so its routes and their query flags must follow "/#".
+  // A path route such as "/auth?sso=..." would load the app at its root, which ignores the query flags.
+  // Callers append "?..." to these, so each redirect has one "?" and it sits after the hash route.
+  private const LOGIN_PAGE = '/#/auth';
+  private const SETTINGS_PAGE = '/#/account/acc-settings';
+  private const SSO_LANDING_PAGE = '/#/auth/sso';
 
   /**
    * @param OidcConfig $config

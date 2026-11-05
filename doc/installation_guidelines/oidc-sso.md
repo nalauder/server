@@ -101,7 +101,7 @@ Use the single sign-on described on this page for new setups.
 
 ## Troubleshooting
 
-When single sign-on fails, the browser is sent back to Hashtopolis with a short reason code in the address. Failed logins land on the login page; failed or finished link requests land on the account settings page. The details are in the Hashtopolis log, never in the address.
+When single sign-on fails, the browser is sent back to Hashtopolis with a short reason code in the address. Failed logins land on the login page; failed or finished link requests land on the account settings page. The web UI uses hash routing, so the reason code follows the `#` route, for example `https://hashtopolis.example.com/#/auth?sso=error&reason=expired` or `https://hashtopolis.example.com/#/account/acc-settings?sso=linked`. The details are in the Hashtopolis log, never in the address.
 
 | Address contains | Meaning | What to do |
 | --- | --- | --- |
