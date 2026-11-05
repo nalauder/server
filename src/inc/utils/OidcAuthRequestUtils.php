@@ -41,6 +41,19 @@ class OidcAuthRequestUtils {
   }
   
   /**
+   * Removes expired and used requests, so nothing outlives its purpose. Called wherever a request is
+   * created or finished, as the table holds identity data while a request is pending.
+   */
+  public static function purgeStale(): void {
+    Factory::getOidcAuthRequestFactory()->massDeletion([
+      Factory::FILTER => new QueryFilter(OidcAuthRequest::EXPIRES_AT, time(), "<")
+    ]);
+    Factory::getOidcAuthRequestFactory()->massDeletion([
+      Factory::FILTER => new QueryFilter(OidcAuthRequest::USED_AT, null, "<>")
+    ]);
+  }
+  
+  /**
    * Starts a request and removes expired and used ones, so nothing outlives its purpose.
    *
    * @param string $purpose one of the PURPOSE_ constants
@@ -51,13 +64,8 @@ class OidcAuthRequestUtils {
    * @throws Exception
    */
   public static function create(string $purpose, string $returnTo, ?int $userId = null, ?OidcClaims $pending = null): array {
+    self::purgeStale();
     $now = time();
-    Factory::getOidcAuthRequestFactory()->massDeletion([
-      Factory::FILTER => new QueryFilter(OidcAuthRequest::EXPIRES_AT, $now, "<")
-    ]);
-    Factory::getOidcAuthRequestFactory()->massDeletion([
-      Factory::FILTER => new QueryFilter(OidcAuthRequest::USED_AT, null, "<>")
-    ]);
     
     $state = bin2hex(random_bytes(32));
     $isPending = $purpose === self::PURPOSE_PENDING_LINK;

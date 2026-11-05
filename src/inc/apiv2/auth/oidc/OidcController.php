@@ -9,6 +9,7 @@ use Hashtopolis\dba\models\User;
 use Hashtopolis\inc\apiv2\auth\HashtopolisAuthenticator;
 use Hashtopolis\inc\apiv2\auth\RefreshTokenCookie;
 use Hashtopolis\inc\apiv2\error\ErrorHandler;
+use Hashtopolis\inc\apiv2\error\HttpConflict;
 use Hashtopolis\inc\apiv2\error\HttpError;
 use Hashtopolis\inc\apiv2\error\HttpForbidden;
 use Hashtopolis\inc\apiv2\error\HttpUnauthorized;
@@ -22,6 +23,7 @@ use Hashtopolis\inc\utils\RefreshTokenUtils;
 use Hashtopolis\inc\Util;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
+use Throwable;
 
 /**
  * Handlers behind /api/v2/auth/oidc/... (spec §7 and §8). The route file only wires these up, so the
@@ -133,6 +135,32 @@ class OidcController {
    */
   public function callback(Request $request, Response $response): Response {
     $this->assertEnabled();
+    $claimed = null;
+    try {
+      OidcAuthRequestUtils::purgeStale();
+      return $this->finishCallback($request, $response, $claimed);
+    }
+    catch (Throwable $e) {
+      // An unexpected fault (a database error, say) must not leave the browser on a JSON error page
+      $isLink = $claimed?->getPurpose() === OidcAuthRequestUtils::PURPOSE_LINK;
+      $this->log($isLink ? $claimed->getUserId() : null, DLogEntry::WARN, "Single sign-on callback failed unexpectedly (" . get_class($e) . ")");
+      if ($claimed === null) {
+        $origin = CorsHackMiddleware::defaultFrontendOrigin();
+        if ($origin === null) {
+          return ErrorHandler::errorResponse($response, "Single sign-on failed", 400);
+        }
+        return $this->redirect($response, $origin . self::LOGIN_PAGE . '?sso=error&reason=' . self::REASON_PROVIDER_ERROR);
+      }
+      $page = (string)$claimed->getReturnTo() . ($isLink ? self::SETTINGS_PAGE : self::LOGIN_PAGE);
+      return OidcStateCookie::clear($request, $this->redirect($response, $page . '?sso=error&reason=' . self::REASON_PROVIDER_ERROR));
+    }
+  }
+
+  /**
+   * @param OidcAuthRequest|null $claimed set as soon as the request is known, for the caller's error handling
+   * @throws Exception
+   */
+  private function finishCallback(Request $request, Response $response, ?OidcAuthRequest &$claimed): Response {
     $query = $request->getQueryParams();
 
     $state = $query['state'] ?? null;
@@ -148,6 +176,7 @@ class OidcController {
       return $cookieMatches ? OidcStateCookie::clear($request, $expired) : $expired;
     }
 
+    $claimed = $authRequest;
     $returnTo = (string)$authRequest->getReturnTo();
     $isLink = $authRequest->getPurpose() === OidcAuthRequestUtils::PURPOSE_LINK;
     $failurePage = $returnTo . ($isLink ? self::SETTINGS_PAGE : self::LOGIN_PAGE);
@@ -162,6 +191,7 @@ class OidcController {
     if ($isLink) {
       $user = Factory::getUserFactory()->get((int)$authRequest->getUserId());
       if (!$user instanceof User || $user->getIsValid() !== 1) {
+        $this->log($authRequest->getUserId(), DLogEntry::WARN, "Single sign-on link refused: the user is disabled or deleted");
         return $fail(self::REASON_USER_DISABLED);
       }
       try {
@@ -188,13 +218,76 @@ class OidcController {
       return $fail(self::REASON_USER_DISABLED);
     }
 
-    $refreshToken = RefreshTokenUtils::issue($user->getId());
     Factory::getUserFactory()->set($user, User::LAST_LOGIN_DATE, time());
     OidcIdentityUtils::touch($identity);
     $this->log($user->getId(), DLogEntry::INFO, "Logged in via single sign-on");
 
     $response = OidcStateCookie::clear($request, $this->redirect($response, $returnTo . self::SSO_LANDING_PAGE));
-    return RefreshTokenCookie::attach($request, $response, $refreshToken);
+    return $this->attachSession($request, $response, $user);
+  }
+
+  /**
+   * POST link-pending {username, password}. Links the identity an unlinked SSO login left pending to
+   * the local account whose password the user proves, and signs them in. Password login being switched
+   * off does not apply: this is how an SSO user gets an account, and the password only proves ownership.
+   *
+   * @throws ResourceNotFoundError
+   * @throws HttpError
+   * @throws HttpForbidden
+   * @throws HttpUnauthorized
+   * @throws HttpConflict
+   * @throws Exception
+   */
+  public function linkPending(Request $request, Response $response): Response {
+    $this->assertEnabled();
+    OidcAuthRequestUtils::purgeStale();
+    CorsHackMiddleware::assertNotCrossSite($request);
+
+    $state = OidcStateCookie::read($request);
+    $pending = $state === null ? null : OidcAuthRequestUtils::peek($state, OidcAuthRequestUtils::PURPOSE_PENDING_LINK);
+    if ($pending === null) {
+      throw new HttpUnauthorized("No pending single sign-on link");
+    }
+
+    $body = $request->getParsedBody();
+    $username = is_array($body) ? ($body['username'] ?? null) : null;
+    $password = is_array($body) ? ($body['password'] ?? null) : null;
+    if (!is_string($username) || $username === '' || !is_string($password) || $password === '') {
+      throw new HttpError("username and password are required");
+    }
+
+    // A wrong password leaves the request usable for another try; a disabled user is a 403 from here
+    $user = HashtopolisAuthenticator::verifyCredentials($username, $password);
+    if ($user === null) {
+      throw new HttpUnauthorized("Wrong username or password");
+    }
+
+    if (!OidcAuthRequestUtils::markUsed($pending)) {
+      throw new HttpUnauthorized("No pending single sign-on link");
+    }
+    // markUsed scrubs the row; the object read before it still holds the identity
+    $claims = new OidcClaims((string)$pending->getIssuer(), (string)$pending->getSubject(), (string)$pending->getLabel());
+    try {
+      $identity = OidcIdentityUtils::link($user->getId(), $claims);
+    }
+    catch (OidcAlreadyLinkedException) {
+      $this->log($user->getId(), DLogEntry::WARN, "Single sign-on link refused: the identity is already linked to another user");
+      throw new HttpConflict("This single sign-on identity is already linked to another user");
+    }
+    OidcIdentityUtils::touch($identity);
+    $this->log($user->getId(), DLogEntry::INFO, "Linked a single sign-on identity and logged in");
+
+    $response = OidcStateCookie::clear($request, $response->withStatus(204));
+    return $this->attachSession($request, $response, $user);
+  }
+
+  /**
+   * Starts a refresh token family for a user who has just signed in and sets it as the cookie.
+   *
+   * @throws Exception
+   */
+  private function attachSession(Request $request, Response $response, User $user): Response {
+    return RefreshTokenCookie::attach($request, $response, RefreshTokenUtils::issue($user->getId()));
   }
 
   /**

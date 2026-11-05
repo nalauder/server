@@ -243,13 +243,115 @@ class OidcTest(BaseTest):
 
     def test_login_updates_last_used(self):
         user, password = self.make_user()
-        self.link(user, password)
+        self.assertRedirect(self.link(user, password), DEFAULT_RETURN_TO + '/account/acc-settings?sso=linked')
         _, response = self.sso_login()
         self.assertRedirect(response, DEFAULT_RETURN_TO + '/auth/sso')
 
         auth = {'Authorization': 'Bearer ' + self.jwt_for(user, password)}
         identity = requests.get(OIDC_URI + '/identities', headers=auth).json()['identities'][0]
         self.assertIsInstance(identity['lastUsedAt'], int)
+
+    def pending_session(self, provider_user=BOB):
+        """A browser whose SSO login with an unlinked identity left a pending link behind."""
+        session = requests.Session()
+        url = start_login(session)
+        response = hit_callback(session, provider_login(url, *provider_user))
+        self.assertRedirect(response, DEFAULT_RETURN_TO + '/auth?sso=link-required')
+        return session
+
+    def link_pending(self, session, username, password):
+        return session.post(OIDC_URI + '/link-pending', json={'username': username, 'password': password})
+
+    def test_link_pending_links_and_logs_in(self):
+        user, password = self.make_user()
+        session = self.pending_session()
+
+        response = self.link_pending(session, user.name, password)
+        self.assertEqual(response.status_code, 204, msg=response.text)
+        self.assertIsNotNone(session.cookies.get(REFRESH_COOKIE))
+        self.assertIn(STATE_COOKIE + '=;', ''.join(_set_cookies(response)))
+
+        refreshed = session.post(REFRESH_URI)
+        self.assertEqual(refreshed.status_code, 201, msg=refreshed.text)
+        self.assertEqual(_jwt_payload(refreshed.json()['token'])['userId'], user.id)
+
+        # The identity is linked now, so the next SSO login goes straight in
+        _, login = self.sso_login(BOB)
+        self.assertRedirect(login, DEFAULT_RETURN_TO + '/auth/sso')
+        auth = {'Authorization': 'Bearer ' + self.jwt_for(user, password)}
+        identities = requests.get(OIDC_URI + '/identities', headers=auth).json()['identities']
+        self.assertEqual([i['label'] for i in identities], ['bob'])
+
+    def test_link_pending_wrong_password_can_retry(self):
+        user, password = self.make_user()
+        session = self.pending_session()
+
+        wrong = self.link_pending(session, user.name, 'wrong-' + password)
+        self.assertEqual(wrong.status_code, 401, msg=wrong.text)
+        self.assertIsNone(session.cookies.get(REFRESH_COOKIE))
+        unknown = self.link_pending(session, 'no-such-user-' + uuid.uuid4().hex[:8], password)
+        self.assertEqual(unknown.status_code, 401, msg=unknown.text)
+
+        retry = self.link_pending(session, user.name, password)
+        self.assertEqual(retry.status_code, 204, msg=retry.text)
+
+    def test_link_pending_without_cookie_401(self):
+        user, password = self.make_user()
+        response = requests.post(OIDC_URI + '/link-pending', json={'username': user.name, 'password': password})
+        self.assertEqual(response.status_code, 401, msg=response.text)
+        self.assertNotIn(REFRESH_COOKIE + '=', ''.join(_set_cookies(response)))
+
+    def test_link_pending_needs_username_and_password(self):
+        session = self.pending_session()
+        response = session.post(OIDC_URI + '/link-pending', json={'username': 'someone'})
+        self.assertEqual(response.status_code, 400, msg=response.text)
+
+    def test_link_pending_single_use(self):
+        user, password = self.make_user()
+        session = self.pending_session()
+        state = _state_of(session)
+        self.assertEqual(self.link_pending(session, user.name, password).status_code, 204)
+
+        # The state cookie was cleared, but a copy of it must not work a second time either
+        replay = requests.post(OIDC_URI + '/link-pending', json={'username': user.name, 'password': password},
+                               cookies={STATE_COOKIE: state})
+        self.assertEqual(replay.status_code, 401, msg=replay.text)
+
+    def test_link_pending_disabled_user_403_no_link(self):
+        user, password = self.make_user()
+        user.isValid = False
+        user.save()
+        session = self.pending_session()
+
+        response = self.link_pending(session, user.name, password)
+        self.assertEqual(response.status_code, 403, msg=response.text)
+        self.assertIsNone(session.cookies.get(REFRESH_COOKIE))
+
+        # Nothing was linked and the request is not used up: re-enabled, the same attempt now works
+        user.isValid = True
+        user.save()
+        auth = {'Authorization': 'Bearer ' + self.jwt_for(user, password)}
+        self.assertEqual(requests.get(OIDC_URI + '/identities', headers=auth).json(), {'identities': []})
+        self.assertEqual(self.link_pending(session, user.name, password).status_code, 204)
+
+    def test_link_pending_identity_owned_by_other_user_409(self):
+        owner, owner_password = self.make_user()
+        other, other_password = self.make_user()
+        self.assertRedirect(self.link(owner, owner_password, BOB), DEFAULT_RETURN_TO + '/account/acc-settings?sso=linked')
+        # BOB is linked, so a login would not be pending; start the pending request before the link instead
+        session = requests.Session()
+        url = start_login(session)
+        callback = provider_login(url, *BOB)
+        # Unlink, let the login become pending, then link the identity to the owner again
+        auth = {'Authorization': 'Bearer ' + self.jwt_for(owner, owner_password)}
+        identity = requests.get(OIDC_URI + '/identities', headers=auth).json()['identities'][0]
+        requests.delete(f"{OIDC_URI}/identities/{identity['id']}", headers=auth)
+        self.assertRedirect(hit_callback(session, callback), DEFAULT_RETURN_TO + '/auth?sso=link-required')
+        self.assertRedirect(self.link(owner, owner_password, BOB), DEFAULT_RETURN_TO + '/account/acc-settings?sso=linked')
+
+        response = self.link_pending(session, other.name, other_password)
+        self.assertEqual(response.status_code, 409, msg=response.text)
+        self.assertIsNone(session.cookies.get(REFRESH_COOKIE))
 
     def test_existing_oauth_token_endpoint_untouched(self):
         # Without /keys/jwks.json the dev server also prints a PHP warning before the problem JSON, which

@@ -39,6 +39,10 @@ $app->group("/api/v2/auth/oidc", function (RouteCollectorProxy $group) {
     return oidcController()->callback($request, $response);
   });
 
+  $group->post('/link-pending', function (Request $request, Response $response): Response {
+    return oidcController()->linkPending($request, $response);
+  });
+
   $group->post('/link', function (Request $request, Response $response): Response {
     return oidcController()->link($request, $response);
   });

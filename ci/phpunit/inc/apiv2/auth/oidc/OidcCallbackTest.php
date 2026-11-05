@@ -3,6 +3,14 @@
 namespace Hashtopolis\inc\apiv2\auth\oidc;
 
 use Hashtopolis\dba\Factory;
+use Hashtopolis\dba\models\OidcIdentity;
+use Hashtopolis\dba\models\User;
+use Hashtopolis\inc\apiv2\auth\HashtopolisAuthenticator;
+use Hashtopolis\inc\apiv2\error\HttpForbidden;
+use Hashtopolis\inc\apiv2\helper\ResetUserPasswordHelperAPI;
+use Hashtopolis\inc\Encryption;
+use Hashtopolis\inc\utils\OidcIdentityUtils;
+use Psr\Container\ContainerInterface;
 use Hashtopolis\dba\models\LogEntry;
 use Hashtopolis\dba\models\OidcAuthRequest;
 use Hashtopolis\dba\OrderFilter;
@@ -53,6 +61,7 @@ final class OidcCallbackTest extends TestBase {
   private const CODE = 'authorization-code-that-must-not-be-logged';
 
   private OidcController $controller;
+  private OidcConfig $config;
   private UnreachableTokenEndpointClient $http;
   private string $cacheDir;
   private int $lastLogId;
@@ -62,12 +71,7 @@ final class OidcCallbackTest extends TestBase {
   #[Override]
   protected function setUp(): void {
     parent::setUp();
-    $config = new OidcConfig([
-      'HASHTOPOLIS_OIDC_ISSUER' => self::ISSUER,
-      'HASHTOPOLIS_OIDC_CLIENT_ID' => 'hashtopolis',
-      'HASHTOPOLIS_OIDC_CLIENT_SECRET' => 'test-client-secret',
-      'HASHTOPOLIS_BACKEND_URL' => 'http://localhost/api/v2',
-    ]);
+    $config = $this->config = $this->makeConfig();
     $this->cacheDir = sys_get_temp_dir() . '/oidc-callback-test-' . bin2hex(random_bytes(6));
     mkdir($this->cacheDir, 0700);
     $this->http = new UnreachableTokenEndpointClient(self::ISSUER);
@@ -75,8 +79,21 @@ final class OidcCallbackTest extends TestBase {
     $this->lastLogId = $this->latestLogId();
   }
 
+  /**
+   * @param array<string, string> $extra
+   */
+  private function makeConfig(array $extra = []): OidcConfig {
+    return new OidcConfig(array_merge([
+      'HASHTOPOLIS_OIDC_ISSUER' => self::ISSUER,
+      'HASHTOPOLIS_OIDC_CLIENT_ID' => 'hashtopolis',
+      'HASHTOPOLIS_OIDC_CLIENT_SECRET' => 'test-client-secret',
+      'HASHTOPOLIS_BACKEND_URL' => 'http://localhost/api/v2',
+    ], $extra));
+  }
+
   #[Override]
   protected function tearDown(): void {
+    OidcConfig::setInstance(null);
     foreach ($this->requests as $request) {
       Factory::getOidcAuthRequestFactory()->massDeletion([
         Factory::FILTER => new QueryFilter(OidcAuthRequest::OIDC_AUTH_REQUEST_ID, $request->getId(), "=")
@@ -201,5 +218,116 @@ final class OidcCallbackTest extends TestBase {
     $entries = $this->newLogEntries();
     $this->assertCount(1, $entries);
     $this->assertSame(DLogEntry::WARN, $entries[0]->getLevel());
+  }
+
+  public function testUnexpectedFaultRedirectsWithProviderError(): void {
+    $provider = $this->createStub(OidcProvider::class);
+    $provider->method('exchangeCode')->willThrowException(new \TypeError('database said secret-detail'));
+    $controller = new OidcController($this->config, $provider);
+    $state = $this->startRequest(OidcAuthRequestUtils::PURPOSE_LOGIN);
+    $request = (new ServerRequestFactory())
+      ->createServerRequest('GET', 'http://localhost/api/v2/auth/oidc/callback')
+      ->withQueryParams(['code' => self::CODE, 'state' => $state])
+      ->withCookieParams([OidcStateCookie::COOKIE_NAME => $state]);
+
+    $response = $controller->callback($request, (new ResponseFactory())->createResponse());
+
+    $this->assertSame(302, $response->getStatusCode());
+    $this->assertSame(self::RETURN_TO . '/auth?sso=error&reason=provider_error', $response->getHeaderLine('Location'));
+    $this->assertStringStartsWith('oidcState=; ', $response->getHeaderLine('Set-Cookie'));
+    $entries = $this->newLogEntries();
+    $this->assertCount(1, $entries);
+    $this->assertSame(DLogEntry::WARN, $entries[0]->getLevel());
+    $this->assertStringContainsString('TypeError', $entries[0]->getMessage());
+    $this->assertStringNotContainsString('secret-detail', $entries[0]->getMessage());
+  }
+
+  public function testCallbackPurgesStaleRequests(): void {
+    $state = $this->startRequest(OidcAuthRequestUtils::PURPOSE_LOGIN);
+    $this->assertNotNull(OidcAuthRequestUtils::consume($state, OidcAuthRequestUtils::PURPOSE_LOGIN));
+    $usedId = $this->requests[0]->getId();
+
+    $this->runCallback(['state' => 'unrelated'], null);
+
+    $this->assertNull(Factory::getOidcAuthRequestFactory()->get($usedId), 'the used row is gone');
+  }
+
+  public function testLinkRefusedWhenUserDisabledIsLogged(): void {
+    $user = $this->createUser('oidc_disabled');
+    Factory::getUserFactory()->set($user, User::IS_VALID, 0);
+    $state = $this->startRequest(OidcAuthRequestUtils::PURPOSE_LINK, $user->getId());
+    $claims = new OidcClaims(self::ISSUER, 'sub-disabled', 'bob');
+    $provider = $this->createStub(OidcProvider::class);
+    $provider->method('exchangeCode')->willReturn('id-token');
+    $provider->method('validateIdToken')->willReturn($claims);
+    $controller = new OidcController($this->config, $provider);
+    $request = (new ServerRequestFactory())
+      ->createServerRequest('GET', 'http://localhost/api/v2/auth/oidc/callback')
+      ->withQueryParams(['code' => self::CODE, 'state' => $state])
+      ->withCookieParams([OidcStateCookie::COOKIE_NAME => $state]);
+
+    $response = $controller->callback($request, (new ResponseFactory())->createResponse());
+
+    $this->assertSame(self::RETURN_TO . '/account/acc-settings?sso=error&reason=user_disabled', $response->getHeaderLine('Location'));
+    $entries = array_values(array_filter($this->newLogEntries(), fn(LogEntry $e) => $e->getLevel() === DLogEntry::WARN));
+    $this->assertCount(1, $entries);
+    $this->assertSame((string)$user->getId(), (string)$entries[0]->getIssuerId());
+    $this->assertNull(OidcIdentityUtils::find(self::ISSUER, 'sub-disabled'));
+  }
+
+  private function localLoginOff(): OidcConfig {
+    $config = $this->makeConfig(['HASHTOPOLIS_LOCAL_LOGIN_ENABLED' => 'false']);
+    OidcConfig::setInstance($config);
+    return $config;
+  }
+
+  public function testTokenEndpointForbiddenWhenLocalLoginDisabled(): void {
+    $this->localLoginOff();
+
+    $this->expectException(HttpForbidden::class);
+    (new HashtopolisAuthenticator())(['user' => 'admin', 'password' => 'whatever']);
+  }
+
+  public function testResetPasswordForbiddenWhenLocalLoginDisabled(): void {
+    $this->localLoginOff();
+    $api = new ResetUserPasswordHelperAPI($this->createStub(ContainerInterface::class));
+
+    $this->expectException(HttpForbidden::class);
+    $api->actionPost([User::USERNAME => 'admin', User::EMAIL => 'admin@example.test']);
+  }
+
+  public function testLinkPendingAllowedWhenLocalLoginDisabled(): void {
+    $config = $this->localLoginOff();
+    $this->assertFalse($config->isLocalLoginEnabled());
+    $user = $this->createUser('oidc_pending');
+    $password = 'pending-link-pass-1';
+    Factory::getUserFactory()->set($user, User::PASSWORD_HASH, Encryption::passwordHash($password, $user->getPasswordSalt()));
+    $made = OidcAuthRequestUtils::create(OidcAuthRequestUtils::PURPOSE_PENDING_LINK, self::RETURN_TO, null,
+      new OidcClaims(self::ISSUER, 'sub-pending', 'bob'));
+    $this->requests[] = $made['request'];
+    $controller = new OidcController($config, new OidcProvider($config, $this->http, $this->cacheDir));
+    $request = (new ServerRequestFactory())
+      ->createServerRequest('POST', 'http://localhost/api/v2/auth/oidc/link-pending')
+      ->withParsedBody(['username' => $user->getUsername(), 'password' => $password])
+      ->withCookieParams([OidcStateCookie::COOKIE_NAME => $made['state']]);
+
+    try {
+      $response = $controller->linkPending($request, (new ResponseFactory())->createResponse());
+
+      $this->assertSame(204, $response->getStatusCode());
+      $cookies = implode("\n", $response->getHeader('Set-Cookie'));
+      $this->assertStringContainsString('refreshToken=', $cookies);
+      $this->assertStringContainsString('oidcState=; ', $cookies);
+      $identity = OidcIdentityUtils::find(self::ISSUER, 'sub-pending');
+      $this->assertInstanceOf(OidcIdentity::class, $identity);
+      $this->assertSame($user->getId(), $identity->getUserId());
+      $this->assertNotNull($identity->getLastUsedAt());
+      $this->assertNull(OidcAuthRequestUtils::peek($made['state'], OidcAuthRequestUtils::PURPOSE_PENDING_LINK), 'the request is used up');
+    }
+    finally {
+      Factory::getOidcIdentityFactory()->massDeletion([
+        Factory::FILTER => new QueryFilter(OidcIdentity::USER_ID, $user->getId(), "=")
+      ]);
+    }
   }
 }
