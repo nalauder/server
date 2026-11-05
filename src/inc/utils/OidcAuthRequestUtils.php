@@ -41,7 +41,7 @@ class OidcAuthRequestUtils {
   }
   
   /**
-   * Starts a request and removes expired ones.
+   * Starts a request and removes expired and used ones, so nothing outlives its purpose.
    *
    * @param string $purpose one of the PURPOSE_ constants
    * @param string $returnTo frontend origin, already checked against the trusted list by the caller
@@ -54,6 +54,9 @@ class OidcAuthRequestUtils {
     $now = time();
     Factory::getOidcAuthRequestFactory()->massDeletion([
       Factory::FILTER => new QueryFilter(OidcAuthRequest::EXPIRES_AT, $now, "<")
+    ]);
+    Factory::getOidcAuthRequestFactory()->massDeletion([
+      Factory::FILTER => new QueryFilter(OidcAuthRequest::USED_AT, null, "<>")
     ]);
     
     $state = bin2hex(random_bytes(32));
@@ -119,6 +122,10 @@ class OidcAuthRequestUtils {
    * The condition lives in the UPDATE rather than in a preceding read, so the database elects the
    * winner when callbacks arrive together (same approach as RefreshTokenUtils::claim).
    *
+   * The same update scrubs the row's secrets and identity data (PKCE verifier, nonce, issuer,
+   * subject, label), so a used row holds nothing sensitive while it waits to be purged. The
+   * caller's in-memory object keeps its values so the flow can finish.
+   *
    * @return bool whether this caller is the one that used it
    */
   public static function markUsed(OidcAuthRequest $request): bool {
@@ -126,7 +133,14 @@ class OidcAuthRequestUtils {
       return Factory::getOidcAuthRequestFactory()->compareAndSet(
         $request,
         [new QueryFilter(OidcAuthRequest::USED_AT, null, "=")],
-        [new UpdateSet(OidcAuthRequest::USED_AT, time())]
+        [
+          new UpdateSet(OidcAuthRequest::USED_AT, time()),
+          new UpdateSet(OidcAuthRequest::CODE_VERIFIER, null),
+          new UpdateSet(OidcAuthRequest::NONCE, null),
+          new UpdateSet(OidcAuthRequest::ISSUER, null),
+          new UpdateSet(OidcAuthRequest::SUBJECT, null),
+          new UpdateSet(OidcAuthRequest::LABEL, null),
+        ]
       );
     }
     catch (Exception) {

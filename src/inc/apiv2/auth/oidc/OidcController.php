@@ -135,13 +135,17 @@ class OidcController {
     $this->assertEnabled();
     $query = $request->getQueryParams();
 
-    $authRequest = $this->claimRequest($request);
+    $state = $query['state'] ?? null;
+    $cookie = OidcStateCookie::read($request);
+    $cookieMatches = is_string($state) && $cookie !== null && hash_equals($cookie, $state);
+    $authRequest = $cookieMatches ? $this->claimRequest($state) : null;
     if ($authRequest === null) {
       $origin = CorsHackMiddleware::defaultFrontendOrigin();
-      if ($origin === null) {
-        return OidcStateCookie::clear($request, ErrorHandler::errorResponse($response, "Sign-in request expired or unknown", 400));
-      }
-      return OidcStateCookie::clear($request, $this->redirect($response, $origin . self::LOGIN_PAGE . '?sso=error&reason=' . self::REASON_EXPIRED));
+      $expired = $origin === null
+        ? ErrorHandler::errorResponse($response, "Sign-in request expired or unknown", 400)
+        : $this->redirect($response, $origin . self::LOGIN_PAGE . '?sso=error&reason=' . self::REASON_EXPIRED);
+      // A cookie that belongs to another (newer) attempt is left alone, so that attempt can still finish
+      return $cookieMatches ? OidcStateCookie::clear($request, $expired) : $expired;
     }
 
     $returnTo = (string)$authRequest->getReturnTo();
@@ -278,15 +282,10 @@ class OidcController {
   }
 
   /**
-   * Finds the login or link request the callback answers and uses it up. Null when the state does
-   * not match this browser's cookie, or the request is unknown, expired or already used.
+   * Finds the login or link request for a state that matched this browser's cookie and uses it up.
+   * Null when the request is unknown, expired or already used.
    */
-  private function claimRequest(Request $request): ?OidcAuthRequest {
-    $state = $request->getQueryParams()['state'] ?? null;
-    $cookie = OidcStateCookie::read($request);
-    if (!is_string($state) || $cookie === null || !hash_equals($cookie, $state)) {
-      return null;
-    }
+  private function claimRequest(string $state): ?OidcAuthRequest {
     $authRequest = OidcAuthRequestUtils::peek($state, OidcAuthRequestUtils::PURPOSE_LOGIN)
       ?? OidcAuthRequestUtils::peek($state, OidcAuthRequestUtils::PURPOSE_LINK);
     if ($authRequest === null || !OidcAuthRequestUtils::markUsed($authRequest)) {

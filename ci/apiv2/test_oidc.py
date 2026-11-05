@@ -185,6 +185,7 @@ class OidcTest(BaseTest):
         url = start_login(requests.Session())
         response = hit_callback(requests.Session(), provider_login(url, *BOB))
         self.assertRedirect(response, DEFAULT_RETURN_TO + '/auth?sso=error&reason=expired')
+        self.assertNotIn(STATE_COOKIE, ''.join(_set_cookies(response)))
 
     def test_provider_error_parameter(self):
         session = requests.Session()
@@ -202,16 +203,13 @@ class OidcTest(BaseTest):
         session = requests.Session()
         older_url = start_login(session)
         newer_url = start_login(session)
-        latest_state = _state_of(session)
-        older_callback = provider_login(older_url, *ALICE)
-        newer_callback = provider_login(newer_url, *ALICE)
 
-        callback_uri = get_hashtopolis_uri() + '/api/v2/auth/oidc/callback?'
-        older = requests.get(callback_uri + older_callback.split('?', 1)[1],
-                             cookies={STATE_COOKIE: latest_state}, allow_redirects=False)
+        # Completing the superseded attempt fails, but leaves the newer attempt's cookie in place
+        older = hit_callback(session, provider_login(older_url, *ALICE))
         self.assertRedirect(older, DEFAULT_RETURN_TO + '/auth?sso=error&reason=expired')
+        self.assertNotIn(STATE_COOKIE, ''.join(_set_cookies(older)))
 
-        newer = hit_callback(session, newer_callback)
+        newer = hit_callback(session, provider_login(newer_url, *ALICE))
         self.assertRedirect(newer, DEFAULT_RETURN_TO + '/auth/sso')
         self.assertIsNotNone(session.cookies.get(REFRESH_COOKIE))
 

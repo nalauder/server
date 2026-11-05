@@ -163,8 +163,28 @@ final class OidcCallbackTest extends TestBase {
 
     $this->assertSame(302, $response->getStatusCode());
     $this->assertStringEndsWith('/auth?sso=error&reason=expired', $response->getHeaderLine('Location'));
-    $this->assertStringStartsWith('oidcState=; ', $response->getHeaderLine('Set-Cookie'));
+    $this->assertSame('', $response->getHeaderLine('Set-Cookie'), 'the cookie of the other attempt is left alone');
     $this->assertNotNull(OidcAuthRequestUtils::peek($state, OidcAuthRequestUtils::PURPOSE_LOGIN), 'a mismatch does not use up the request');
+  }
+
+  public function testMissingCookieIsExpiredWithoutClearing(): void {
+    $state = $this->startRequest(OidcAuthRequestUtils::PURPOSE_LOGIN);
+
+    $response = $this->runCallback(['code' => self::CODE, 'state' => $state], null);
+
+    $this->assertStringEndsWith('/auth?sso=error&reason=expired', $response->getHeaderLine('Location'));
+    $this->assertSame('', $response->getHeaderLine('Set-Cookie'));
+  }
+
+  public function testUsedRequestIsExpiredAndClearsMatchingCookie(): void {
+    $state = $this->startRequest(OidcAuthRequestUtils::PURPOSE_LOGIN);
+    $this->assertNotNull(OidcAuthRequestUtils::consume($state, OidcAuthRequestUtils::PURPOSE_LOGIN));
+
+    $response = $this->runCallback(['code' => self::CODE, 'state' => $state], $state);
+
+    $this->assertStringEndsWith('/auth?sso=error&reason=expired', $response->getHeaderLine('Location'));
+    $this->assertStringStartsWith('oidcState=; ', $response->getHeaderLine('Set-Cookie'));
+    $this->assertCount(0, $this->newLogEntries(), 'the provider is not contacted for a used request');
   }
 
   public function testLoginProviderFailureRedirectsWithProviderError(): void {

@@ -116,6 +116,48 @@ final class OidcAuthRequestUtilsTest extends TestBase {
     $this->assertNull(Factory::getOidcAuthRequestFactory()->filter([Factory::FILTER => $qF], true));
   }
   
+  public function testCreateDeletesUsedRows(): void {
+    $used = $this->make();
+    $this->assertNotNull(OidcAuthRequestUtils::consume($used['state'], OidcAuthRequestUtils::PURPOSE_LOGIN));
+    $unused = $this->make();
+    $this->make();
+
+    $factory = Factory::getOidcAuthRequestFactory();
+    $this->assertNull($factory->get($used['request']->getId()));
+    $this->assertNotNull($factory->get($unused['request']->getId()));
+  }
+
+  public function testConsumeScrubsSensitiveColumns(): void {
+    $made = $this->make(OidcAuthRequestUtils::PURPOSE_PENDING_LINK, new OidcClaims('https://idp.example.test', 'sub-1', 'alice@example.test'));
+    $consumed = OidcAuthRequestUtils::consume($made['state'], OidcAuthRequestUtils::PURPOSE_PENDING_LINK);
+    $this->assertNotNull($consumed);
+
+    // the caller's copy still carries what it needs to finish the flow
+    $this->assertSame('sub-1', $consumed->getSubject());
+    $this->assertSame('alice@example.test', $consumed->getLabel());
+    $this->assertNotEmpty($consumed->getNonce());
+
+    $row = Factory::getOidcAuthRequestFactory()->get($made['request']->getId());
+    $this->assertNotNull($row);
+    $this->assertNotNull($row->getUsedAt());
+    $this->assertNull($row->getCodeVerifier());
+    $this->assertNull($row->getNonce());
+    $this->assertNull($row->getIssuer());
+    $this->assertNull($row->getSubject());
+    $this->assertNull($row->getLabel());
+
+    // a replay finds nothing usable
+    $this->assertNull(OidcAuthRequestUtils::consume($made['state'], OidcAuthRequestUtils::PURPOSE_PENDING_LINK));
+  }
+
+  public function testLosingMarkUsedDoesNotScrub(): void {
+    $made = $this->make();
+    $this->assertTrue(OidcAuthRequestUtils::markUsed($made['request']));
+    $this->assertFalse(OidcAuthRequestUtils::markUsed($made['request']));
+    $this->assertNotEmpty($made['request']->getCodeVerifier());
+    $this->assertNotEmpty($made['request']->getNonce());
+  }
+
   public function testCodeChallengeRfc7636Vector(): void {
     $this->assertSame(
       'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM',
