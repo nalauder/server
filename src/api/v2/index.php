@@ -72,6 +72,10 @@ $container->set("JwtAuthentication", function (ContainerInterface $container) {
     "/api/v2/auth/token",
     "/api/v2/auth/oauth-token",
     "/api/v2/auth/refresh",
+    "/api/v2/auth/oidc/config",
+    "/api/v2/auth/oidc/login",
+    "/api/v2/auth/oidc/callback",
+    "/api/v2/auth/oidc/link-pending",
     "/api/v2/helper/resetUserPassword",
     "/api/v2/openapi.json",
   ]);
@@ -159,6 +163,7 @@ $errorMiddlewareMethodNotAllowed->setErrorHandler(HttpMethodNotAllowedException:
 
 include(__DIR__ . "/../../inc/apiv2/common/openAPISchema.routes.php");
 include(__DIR__ . "/../../inc/apiv2/auth/token.routes.php");
+include(__DIR__ . "/../../inc/apiv2/auth/oidc.routes.php");
 
 // register model and helper APIs (order matters: it defines route and
 // OpenAPI spec ordering, see ApiRegistry)
