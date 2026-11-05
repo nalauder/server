@@ -5,6 +5,7 @@ namespace Hashtopolis\inc\utils;
 use Exception;
 use Hashtopolis\dba\Factory;
 use Hashtopolis\dba\models\OidcAuthRequest;
+use Hashtopolis\dba\models\OidcIdentity;
 use Hashtopolis\dba\QueryFilter;
 use Hashtopolis\dba\UpdateSet;
 use Hashtopolis\inc\apiv2\auth\oidc\OidcClaims;
@@ -120,5 +121,23 @@ final class OidcAuthRequestUtilsTest extends TestBase {
       'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM',
       OidcAuthRequestUtils::codeChallenge('dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk')
     );
+  }
+  
+  public function testSubjectsDifferingInCaseStayDistinct(): void {
+    $issuer = 'https://idp.example.test';
+    $a = $this->make(OidcAuthRequestUtils::PURPOSE_PENDING_LINK, new OidcClaims($issuer, 'CaseSub', 'x'))['request'];
+    $b = $this->make(OidcAuthRequestUtils::PURPOSE_PENDING_LINK, new OidcClaims($issuer, 'casesub', 'x'))['request'];
+    $this->assertSame('CaseSub', $a->getSubject());
+    $this->assertSame('casesub', $b->getSubject());
+    
+    // the unique key on (issuer, subject) must not treat them as equal
+    $user = $this->createUser('oidc_case');
+    $now = time();
+    $factory = Factory::getOidcIdentityFactory();
+    $first = $factory->save(new OidcIdentity(null, $user->getId(), $issuer, 'CaseSub', 'x', $now, null));
+    $second = $factory->save(new OidcIdentity(null, $user->getId(), $issuer, 'casesub', 'x', $now, null));
+    $this->assertInstanceOf(OidcIdentity::class, $first);
+    $this->assertInstanceOf(OidcIdentity::class, $second);
+    $this->assertNotSame($first->getId(), $second->getId());
   }
 }

@@ -103,6 +103,7 @@ class OidcAuthRequestUtils {
   
   /**
    * Looks up a usable request and uses it up. Of several concurrent callers only one gets the row.
+   * The returned object's in-memory usedAt is not refreshed and still reads null.
    */
   public static function consume(string $state, string $purpose): ?OidcAuthRequest {
     $request = self::peek($state, $purpose);
