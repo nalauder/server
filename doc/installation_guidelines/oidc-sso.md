@@ -99,6 +99,18 @@ Linking at the first login still accepts a Hashtopolis password while local logi
 
 Use the single sign-on described on this page for new setups.
 
+## Troubleshooting
+
+When single sign-on fails, the browser is sent back to Hashtopolis with a short reason code in the address. Failed logins land on the login page; failed or finished link requests land on the account settings page. The details are in the Hashtopolis log, never in the address.
+
+| Address contains | Meaning | What to do |
+| --- | --- | --- |
+| `sso=error&reason=expired` | The sign-in request is unknown, expired (requests last 10 minutes) or was already used, or the browser did not send its sign-in cookie back. | Start again from the login page. If it keeps happening, check that the browser accepts cookies. If the frontend runs on a different site than the backend, set `HASHTOPOLIS_REFRESH_COOKIE_SAMESITE=None` (see the advanced installation guide). |
+| `sso=error&reason=provider_error` | The provider reported an error, or the token exchange or ID token check failed (wrong client secret, issuer mismatch, unreachable provider, clock skew). | Check the Hashtopolis log for the entry "Single sign-on failed", then the issuer, client ID, client secret and redirect URI. |
+| `sso=error&reason=user_disabled` | The linked Hashtopolis user is disabled. | Ask an administrator to enable the user. |
+| `sso=error&reason=already_linked` | A link request was made for an identity that belongs to a different Hashtopolis user. Shown on the account settings page. | Unlink the identity from the other user first, or sign in to the provider as a different person. |
+| `sso=link-required` | The provider identity is valid but not linked to any Hashtopolis user yet. This is expected on the first login. | Enter the Hashtopolis username and password when the login page asks, as described under "Linking users". |
+
 ## Endpoints
 
 All endpoints are listed in the API documentation under `/api/v2/auth/oidc/`: `config`, `login`, `callback`, `link`, `link-pending` and `identities`.
