@@ -44,6 +44,7 @@ class ResetUserPasswordHelperAPI extends AbstractHelperAPI {
    * @throws HTException
    */
   public function actionPost(array $data): AbstractModel|array|null {
+    OidcConfig::get()->assertLocalLoginAllowed();
     UserUtils::userForgotPassword($data[User::USERNAME], $data[User::EMAIL]);
     
     return $this->getResponse();
