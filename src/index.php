@@ -29,6 +29,9 @@ if (isset($_GET['err'])) {
       case '4':
         UI::addMessage(UI::ERROR, "You need to be logged in to view this! Please log in again.");
         break;
+      case '5':
+        UI::addMessage(UI::ERROR, "Password login is disabled on this server. Use single sign-on.");
+        break;
     }
   }
 }

@@ -7,6 +7,7 @@ use Hashtopolis\dba\QueryFilter;
 use Hashtopolis\dba\models\Session;
 use Hashtopolis\dba\models\User;
 use Hashtopolis\dba\Factory;
+use Hashtopolis\inc\apiv2\auth\oidc\OidcConfig;
 use Hashtopolis\inc\defines\DLogEntry;
 use Hashtopolis\inc\defines\DLogEntryIssuer;
 use Hashtopolis\inc\defines\DNotificationType;
@@ -115,12 +116,17 @@ class Login {
    *
    * @param string $username username of the user to be logged in
    * @param string $password password which was entered on login form
-   * @return bool true on success and false on failure
+   * @return bool true on success and false on failure, always false when local login is disabled
    * @throws Exception
    */
   public function login(string $username, string $password): bool {
     /****** Check password ******/
     if ($this->valid) {
+      return false;
+    }
+    if (!OidcConfig::get()->isLocalLoginEnabled()) {
+      // Checked before the user lookup, so the refusal is the same whether the user exists or not
+      Util::createLogEntry(DLogEntryIssuer::API, "login", DLogEntry::WARN, "Password login refused: local login is disabled");
       return false;
     }
     $filter = new QueryFilter(User::USERNAME, $username, "=");

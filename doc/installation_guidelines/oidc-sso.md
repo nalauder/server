@@ -81,7 +81,7 @@ Linking always needs the current Hashtopolis password, so a stolen session canno
 
 ## Turning off password login
 
-Set `HASHTOPOLIS_LOCAL_LOGIN_ENABLED=false` once single sign-on works. Password login (`/auth/token`) and the password reset routes then answer 403. API keys, agent authentication and `/auth/oauth-token` are not affected.
+Set `HASHTOPOLIS_LOCAL_LOGIN_ENABLED=false` once single sign-on works. Password login (`/auth/token`) and the password reset routes then answer 403. The switch covers the legacy web UI too: its login form and its "forgot password" page refuse every attempt with a message that password login is disabled. API keys, agent authentication and `/auth/oauth-token` are not affected.
 
 Linking at the first login still accepts a Hashtopolis password while local login is off. That only works for someone who has just signed in at the provider. To onboard a user with local login off:
 

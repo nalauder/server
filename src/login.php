@@ -1,5 +1,6 @@
 <?php
 
+use Hashtopolis\inc\apiv2\auth\oidc\OidcConfig;
 use Hashtopolis\inc\defines\DViewControl;
 use Hashtopolis\inc\Login;
 use Hashtopolis\inc\Util;
@@ -34,6 +35,11 @@ if (Login::getInstance()->isLoggedin()) {
     die();
   }
   header("Location: index.php");
+  die();
+}
+
+if (!OidcConfig::get()->isLocalLoginEnabled()) {
+  header("Location: index.php?err=5" . time());
   die();
 }
 
