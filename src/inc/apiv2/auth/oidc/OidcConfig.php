@@ -94,7 +94,8 @@ final class OidcConfig {
   }
 
   public function getIssuer(): string {
-    return rtrim($this->value('HASHTOPOLIS_OIDC_ISSUER'), '/');
+    // Kept exactly as configured (whitespace aside): some issuers end in "/" and iss is compared exactly.
+    return $this->value('HASHTOPOLIS_OIDC_ISSUER');
   }
 
   public function getClientId(): string {

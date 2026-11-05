@@ -41,6 +41,9 @@ class OidcProvider {
     if (!is_dir($cacheDir)) {
       @mkdir($cacheDir, 0700, true);
     }
+    if (!is_dir($cacheDir) || !is_writable($cacheDir)) {
+      error_log("OIDC: cache directory " . $cacheDir . " is not writable, provider metadata will not be cached");
+    }
     return new OidcProvider($config, new CurlOidcHttpClient($config->allowsInsecureHttp()), $cacheDir);
   }
 
@@ -93,6 +96,9 @@ class OidcProvider {
    */
   public function validateIdToken(string $idToken, string $nonce): OidcClaims {
     return $this->guard(function () use ($idToken, $nonce) {
+      if ($nonce === '') {
+        throw new OidcException("expected nonce is empty");
+      }
       $key = $this->keyForToken($idToken);
       $payload = $this->decode($idToken, $key);
       return $this->checkClaims($payload, $nonce);
@@ -156,7 +162,7 @@ class OidcProvider {
     }
     $doc = $this->readCache('discovery');
     if ($doc === null || !$this->issuerMatches($doc)) {
-      $doc = $this->http->getJson($this->config->getIssuer() . '/.well-known/openid-configuration');
+      $doc = $this->http->getJson(rtrim($this->config->getIssuer(), '/') . '/.well-known/openid-configuration');
       if (!$this->issuerMatches($doc)) {
         throw new OidcException("issuer mismatch: discovery document does not belong to the configured issuer");
       }

@@ -37,7 +37,7 @@ final class OidcConfigTest extends TestCase {
   public function testEnabledWithAllThree(): void {
     $c = new OidcConfig($this->full());
     $this->assertTrue($c->isEnabled());
-    $this->assertSame('https://idp.example.test/realms/x', $c->getIssuer());
+    $this->assertSame('https://idp.example.test/realms/x/', $c->getIssuer());
     $this->assertSame('hashtopolis', $c->getClientId());
     $this->assertSame('secret', $c->getClientSecret());
   }

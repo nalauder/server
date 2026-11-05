@@ -32,7 +32,7 @@ final class CurlOidcHttpClient implements OidcHttpClient {
     if ($scheme !== 'https' && !($scheme === 'http' && $this->allowInsecureHttp)) {
       throw new OidcException("refusing non-https provider URL: " . $url);
     }
-    $protocols = $this->allowInsecureHttp ? 'http,https' : 'https';
+    $protocols = $this->allowInsecureHttp ? (CURLPROTO_HTTPS | CURLPROTO_HTTP) : CURLPROTO_HTTPS;
 
     $ch = curl_init();
     curl_setopt_array($ch, [
@@ -41,8 +41,8 @@ final class CurlOidcHttpClient implements OidcHttpClient {
       CURLOPT_CONNECTTIMEOUT => self::TIMEOUT_SECONDS,
       CURLOPT_TIMEOUT => self::TIMEOUT_SECONDS,
       CURLOPT_FOLLOWLOCATION => false,
-      CURLOPT_PROTOCOLS_STR => $protocols,
-      CURLOPT_REDIR_PROTOCOLS_STR => $protocols,
+      CURLOPT_PROTOCOLS => $protocols,
+      CURLOPT_REDIR_PROTOCOLS => $protocols,
       CURLOPT_SSL_VERIFYPEER => true,
       CURLOPT_SSL_VERIFYHOST => 2,
       CURLOPT_HTTPHEADER => ['Accept: application/json'],

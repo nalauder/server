@@ -132,7 +132,7 @@ final class OidcProviderTest extends TestCase {
 
   private function provider(?OidcConfig $config = null): OidcProvider {
     $config ??= new OidcConfig([
-      'HASHTOPOLIS_OIDC_ISSUER' => self::ISSUER . '/',
+      'HASHTOPOLIS_OIDC_ISSUER' => self::ISSUER,
       'HASHTOPOLIS_OIDC_CLIENT_ID' => self::CLIENT_ID,
       'HASHTOPOLIS_OIDC_CLIENT_SECRET' => self::SECRET,
       'HASHTOPOLIS_BACKEND_URL' => 'https://hashtopolis.example.test/api/v2',
@@ -165,12 +165,13 @@ final class OidcProviderTest extends TestCase {
     return JWT::encode($this->claims($overrides), $key ?? self::$rsaKey, 'RS256', $kid);
   }
 
-  private function assertRejected(string $token, string $nonce = 'the-nonce'): void {
+  private function assertRejected(string $token, string $expectedMessage, string $nonce = 'the-nonce'): void {
     try {
       $this->provider()->validateIdToken($token, $nonce);
       $this->fail("token was accepted");
     }
     catch (OidcException $e) {
+      $this->assertStringContainsString($expectedMessage, $e->getMessage());
       $this->assertStringNotContainsString($token, $e->getMessage());
       $this->assertStringNotContainsString('alice', $e->getMessage());
     }
@@ -237,63 +238,88 @@ final class OidcProviderTest extends TestCase {
 
   public function testWrongSignature(): void {
     // Signed with a key that is not in the JWKS, but claiming the published kid.
-    $this->assertRejected($this->rsToken([], 'rsa-1', self::$rsaKey2));
+    $this->assertRejected($this->rsToken([], 'rsa-1', self::$rsaKey2), 'signature verification failed');
   }
 
   public function testWrongIssuer(): void {
-    $this->assertRejected($this->rsToken(['iss' => 'https://evil.example.test/realms/test']));
+    $this->assertRejected($this->rsToken(['iss' => 'https://evil.example.test/realms/test']), 'issuer does not match');
   }
 
   public function testWrongAudience(): void {
-    $this->assertRejected($this->rsToken(['aud' => 'other-client']));
-    $this->assertRejected($this->rsToken(['aud' => ['other-client']]));
+    $this->assertRejected($this->rsToken(['aud' => 'other-client']), 'audience does not contain');
+    $this->assertRejected($this->rsToken(['aud' => ['other-client']]), 'audience does not contain');
   }
 
   public function testMultiAudienceRequiresAzp(): void {
-    $this->assertRejected($this->rsToken(['aud' => [self::CLIENT_ID, 'other']]));
-    $this->assertRejected($this->rsToken(['aud' => [self::CLIENT_ID, 'other'], 'azp' => 'other']));
-    $this->assertRejected($this->rsToken(['aud' => self::CLIENT_ID, 'azp' => 'other']));
+    $this->assertRejected($this->rsToken(['aud' => [self::CLIENT_ID, 'other']]), 'several audiences but no azp');
+    $this->assertRejected($this->rsToken(['aud' => [self::CLIENT_ID, 'other'], 'azp' => 'other']), 'azp does not match');
+    $this->assertRejected($this->rsToken(['aud' => self::CLIENT_ID, 'azp' => 'other']), 'azp does not match');
     $claims = $this->provider()->validateIdToken(
       $this->rsToken(['aud' => [self::CLIENT_ID, 'other'], 'azp' => self::CLIENT_ID]), 'the-nonce');
     $this->assertSame('subject-123', $claims->subject);
   }
 
   public function testWrongNonce(): void {
-    $this->assertRejected($this->rsToken(), 'another-nonce');
+    $this->assertRejected($this->rsToken(), 'nonce does not match', 'another-nonce');
+  }
+
+  public function testEmptyExpectedNonceRejected(): void {
+    $this->assertRejected($this->rsToken(['nonce' => '']), 'expected nonce is empty', '');
+  }
+
+  public function testIssuerWithTrailingSlashKeptExact(): void {
+    $issuer = 'https://idp.example.test/tenant/';
+    $discovery = 'https://idp.example.test/tenant/.well-known/openid-configuration';
+    $this->http->responses = [
+      $discovery => array_merge($this->http->responses[self::DISCOVERY], ['issuer' => $issuer]),
+      self::JWKS => $this->http->responses[self::JWKS],
+    ];
+    $provider = $this->provider(new OidcConfig([
+      'HASHTOPOLIS_OIDC_ISSUER' => $issuer,
+      'HASHTOPOLIS_OIDC_CLIENT_ID' => self::CLIENT_ID,
+      'HASHTOPOLIS_OIDC_CLIENT_SECRET' => self::SECRET,
+    ]));
+    $claims = $provider->validateIdToken($this->rsToken(['iss' => $issuer]), 'the-nonce');
+    $this->assertSame($issuer, $claims->issuer);
+    $this->assertSame(1, $this->http->count($discovery));
+    // The slash-less form is a different issuer and is rejected.
+    $this->expectException(OidcException::class);
+    $this->expectExceptionMessage('issuer does not match');
+    $provider->validateIdToken($this->rsToken(['iss' => rtrim($issuer, '/')]), 'the-nonce');
   }
 
   public function testMissingNonce(): void {
-    $this->assertRejected($this->rsToken(['nonce' => null]));
+    $this->assertRejected($this->rsToken(['nonce' => null]), 'nonce does not match');
   }
 
   public function testMissingSubOrExpOrIatRejected(): void {
-    $this->assertRejected($this->rsToken(['sub' => null]));
-    $this->assertRejected($this->rsToken(['sub' => '']));
-    $this->assertRejected($this->rsToken(['exp' => null]));
-    $this->assertRejected($this->rsToken(['iat' => null]));
+    $this->assertRejected($this->rsToken(['sub' => null]), 'no subject');
+    $this->assertRejected($this->rsToken(['sub' => '']), 'no subject');
+    $this->assertRejected($this->rsToken(['exp' => null]), 'has no exp');
+    $this->assertRejected($this->rsToken(['iat' => null]), 'has no iat');
   }
 
   public function testLeewayOnlySetDuringDecode(): void {
     $this->assertSame(0, JWT::$leeway);
     $this->provider()->validateIdToken($this->rsToken(), 'the-nonce');
     $this->assertSame(0, JWT::$leeway);
-    $this->assertRejected($this->rsToken([], 'rsa-1', self::$rsaKey2));
+    $this->assertRejected($this->rsToken([], 'rsa-1', self::$rsaKey2), 'signature verification failed');
     $this->assertSame(0, JWT::$leeway);
   }
 
   public function testAlgNoneRejected(): void {
     $header = self::b64u((string)json_encode(['typ' => 'JWT', 'alg' => 'none', 'kid' => 'rsa-1']));
     $body = self::b64u((string)json_encode($this->claims()));
-    $this->assertRejected("$header.$body.");
+    $this->assertRejected("$header.$body.", 'ID token is invalid');
   }
 
   public function testHs256WithPublicKeyAsSecretRejected(): void {
     $pem = openssl_pkey_get_details(self::$rsaKey)['key'];
-    $this->assertRejected(JWT::encode($this->claims(), $pem, 'HS256', 'rsa-1'));
+    $this->assertRejected(JWT::encode($this->claims(), $pem, 'HS256', 'rsa-1'), 'ID token is invalid');
   }
 
   public function testExpiredBeyondLeewayRejected(): void {
-    $this->assertRejected($this->rsToken(['iat' => self::NOW - 600, 'exp' => self::NOW - 61]));
+    $this->assertRejected($this->rsToken(['iat' => self::NOW - 600, 'exp' => self::NOW - 61]), 'has expired');
     // Within leeway is still accepted.
     $claims = $this->provider()->validateIdToken($this->rsToken(['iat' => self::NOW - 600, 'exp' => self::NOW - 59]), 'the-nonce');
     $this->assertSame('subject-123', $claims->subject);
@@ -305,9 +331,9 @@ final class OidcProviderTest extends TestCase {
   }
 
   public function testIat61sFutureRejected(): void {
-    $this->assertRejected($this->rsToken(['iat' => self::NOW + 61]));
+    $this->assertRejected($this->rsToken(['iat' => self::NOW + 61]), 'not yet valid');
     // An nbf claim must not switch off the iat check (php-jwt skips iat when nbf is set).
-    $this->assertRejected($this->rsToken(['iat' => self::NOW + 61, 'nbf' => self::NOW]));
+    $this->assertRejected($this->rsToken(['iat' => self::NOW + 61, 'nbf' => self::NOW]), 'iat is in the future');
   }
 
   public function testUnknownKidRefetchesOnceThenValidates(): void {
@@ -329,7 +355,7 @@ final class OidcProviderTest extends TestCase {
   public function testUnknownKidAfterRefetchThrows(): void {
     $this->provider()->validateIdToken($this->rsToken(), 'the-nonce');
     $this->assertSame(1, $this->http->count(self::JWKS));
-    $this->assertRejected($this->rsToken([], 'unknown-kid', self::$rsaKey2));
+    $this->assertRejected($this->rsToken([], 'unknown-kid', self::$rsaKey2), 'unknown key');
     $this->assertSame(2, $this->http->count(self::JWKS));
   }
 
@@ -337,12 +363,12 @@ final class OidcProviderTest extends TestCase {
     $this->http->responses[self::JWKS] = ['keys' => [
       array_merge($this->rsaJwk(self::$rsaKey, 'enc-key'), ['use' => 'enc']),
       array_merge($this->rsaJwk(self::$rsaKey, 'rs512-key'), ['alg' => 'RS512']),
-      ['kty' => 'oct', 'kid' => 'hmac-key', 'k' => self::b64u(str_repeat('s', 32))],
+      ['kty' => 'oct', 'kid' => 'hmac-key', 'alg' => 'HS256', 'k' => self::b64u(str_repeat('s', 32))],
       array_diff_key($this->rsaJwk(self::$rsaKey, 'no-alg'), ['alg' => true]),
     ]];
-    $this->assertRejected($this->rsToken([], 'enc-key'));
-    $this->assertRejected(JWT::encode($this->claims(), self::$rsaKey, 'RS512', 'rs512-key'));
-    $this->assertRejected(JWT::encode($this->claims(), str_repeat('s', 32), 'HS256', 'hmac-key'));
+    $this->assertRejected($this->rsToken([], 'enc-key'), 'unknown key');
+    $this->assertRejected(JWT::encode($this->claims(), self::$rsaKey, 'RS512', 'rs512-key'), 'unknown key');
+    $this->assertRejected(JWT::encode($this->claims(), str_repeat('s', 32), 'HS256', 'hmac-key'), 'unknown key');
     // An RSA key without alg maps to RS256.
     $claims = $this->provider()->validateIdToken($this->rsToken([], 'no-alg'), 'the-nonce');
     $this->assertSame('subject-123', $claims->subject);
@@ -379,8 +405,8 @@ final class OidcProviderTest extends TestCase {
   }
 
   public function testGarbageTokenThrowsOidcException(): void {
-    $this->assertRejected('not-a-jwt');
-    $this->assertRejected('a.b.c');
+    $this->assertRejected('not-a-jwt', 'malformed');
+    $this->assertRejected('a.b.c', 'no key id');
   }
 
   public function testLabelFallbacks(): void {
