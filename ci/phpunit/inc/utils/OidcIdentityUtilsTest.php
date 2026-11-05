@@ -6,6 +6,7 @@ use Exception;
 use Hashtopolis\dba\Factory;
 use Hashtopolis\dba\models\OidcIdentity;
 use Hashtopolis\dba\QueryFilter;
+use Hashtopolis\dba\UpdateSet;
 use Hashtopolis\inc\apiv2\auth\oidc\OidcAlreadyLinkedException;
 use Hashtopolis\inc\apiv2\auth\oidc\OidcClaims;
 use Hashtopolis\TestBase;
@@ -134,8 +135,11 @@ final class OidcIdentityUtilsTest extends TestBase {
     $user = $this->createUser('oidc_list');
     $newer = $this->link($user->getId(), new OidcClaims(self::ISSUER, 'sub-' . uniqid(), 'newer'));
     $older = $this->link($user->getId(), new OidcClaims('https://other.example.test', 'sub-' . uniqid(), 'older'));
-    $older->setCreatedAt($newer->getCreatedAt() - 100);
-    Factory::getOidcIdentityFactory()->update($older);
+    // massUpdate: update() would write the primary key, which a Postgres identity column refuses
+    Factory::getOidcIdentityFactory()->massUpdate([
+      Factory::FILTER => new QueryFilter(OidcIdentity::OIDC_IDENTITY_ID, $older->getId(), "="),
+      Factory::UPDATE => new UpdateSet(OidcIdentity::CREATED_AT, $newer->getCreatedAt() - 100)
+    ]);
     
     $list = OidcIdentityUtils::listForUser($user->getId());
     $this->assertSame([$older->getId(), $newer->getId()], array_map(fn($i) => $i->getId(), $list));
