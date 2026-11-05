@@ -28,7 +28,8 @@ jobs:
       - name: PHPUnittest Run
         run: docker exec -w /var/www/html/ hashtopolis-server-dev php -d xdebug.mode=coverage ./vendor/bin/phpunit --coverage-text --display-warnings --display-deprecations ./ci/phpunit/
       - name: Test with pytest
-        run: docker exec -w /var/www/html/ci/apiv2 hashtopolis-server-dev pytest
+        # CI is passed on so the OIDC tests fail, instead of skipping, when the provider is unreachable
+        run: docker exec -e CI -w /var/www/html/ci/apiv2 hashtopolis-server-dev pytest
       - name: Test if pytest is removing all test objects
         run: docker exec -w /var/www/html/ci/apiv2 hashtopolis-server-dev python3 htcli.py run delete-test-data
       - name: Show docker log files

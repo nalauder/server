@@ -15,7 +15,8 @@ DEFAULT_RETURN_TO = 'http://localhost:4200'
 # The server container does not wait for Keycloak to come up, so give it time before deciding
 DISCOVERY_WAIT_SECONDS = 60
 
-_enabled = None
+# None until checked, then 'enabled', 'disabled' (not configured) or 'unreachable'
+_status = None
 
 
 def _provider_reachable(issuer):
@@ -32,18 +33,30 @@ def _provider_reachable(issuer):
         time.sleep(2)
 
 
+def _in_ci():
+    return os.environ.get('CI', '').strip().lower() not in ('', '0', 'false')
+
+
 def oidc_enabled():
     """Whether the server under test is configured for SSO and its provider answers discovery.
 
     The tests run inside the server container, so the server's own settings are in our environment.
-    The answer is cached, so only the first caller waits for the provider.
+    The answer is cached, so only the first caller waits for the provider. When SSO is configured but
+    the provider does not answer, the OIDC tests are skipped locally, but in CI (the CI variable is
+    set) this raises, so a broken provider cannot let CI pass without running them.
     """
-    global _enabled
-    if _enabled is None:
+    global _status
+    if _status is None:
         issuer = os.environ.get('HASHTOPOLIS_OIDC_ISSUER', '').strip()
         client_id = os.environ.get('HASHTOPOLIS_OIDC_CLIENT_ID', '').strip()
-        _enabled = bool(issuer and client_id) and _provider_reachable(issuer)
-    return _enabled
+        if not (issuer and client_id):
+            _status = 'disabled'
+        else:
+            _status = 'enabled' if _provider_reachable(issuer) else 'unreachable'
+    if _status == 'unreachable' and _in_ci():
+        raise RuntimeError('OIDC is configured but the provider is unreachable; '
+                           'refusing to skip the OIDC tests in CI')
+    return _status == 'enabled'
 
 
 def start_login(session, return_to=DEFAULT_RETURN_TO):
