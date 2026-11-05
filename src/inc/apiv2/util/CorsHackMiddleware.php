@@ -109,29 +109,47 @@ class CorsHackMiddleware implements MiddlewareInterface {
    * @throws HttpForbidden when a setting names something that is not an http(s) origin
    */
   public static function isTrustedOrigin(string $origin): bool {
-    $origin = trim($origin);
+    return self::canonicalTrustedOrigin($origin) !== null;
+  }
+
+  /**
+   * The canonical `scheme://host[:port]` form of a trusted origin, or null when it is not trusted.
+   * Callers that store or redirect to a client-supplied origin must use this result, never the raw
+   * input. Default ports are omitted and scheme and host are lowercased; the result never ends in "/".
+   * Input containing control characters, spaces or a backslash is rejected before any parsing.
+   *
+   * @throws HttpForbidden when a setting names something that is not an http(s) origin
+   */
+  public static function canonicalTrustedOrigin(string $origin): ?string {
+    if (preg_match('/[\x00-\x20\x7F\\\\]/', $origin) === 1) {
+      return null;
+    }
     $parts = parse_url($origin);
     if ($parts === false) {
-      return false;
+      return null;
     }
     if (isset($parts['query']) || isset($parts['fragment']) || isset($parts['user']) || isset($parts['pass'])
       || (isset($parts['path']) && $parts['path'] !== '/')) {
-      return false;
+      return null;
     }
     // parse_url keeps a bare "?" or "#" out of its result, so those are rejected here
     if (str_contains($origin, '?') || str_contains($origin, '#') || str_contains($origin, '@')) {
-      return false;
+      return null;
     }
 
     $parsed = self::parseOrigin($origin);
+    if ($parsed === null || !self::matchesAllowed($parsed, self::allowedOrigins())) {
+      return null;
+    }
 
-    return $parsed !== null && self::matchesAllowed($parsed, self::allowedOrigins());
+    return self::formatOrigin($parsed);
   }
 
   /**
    * The frontend origin to send a browser back to when nothing more specific was asked for: the first
    * HASHTOPOLIS_FRONTEND_URLS entry, otherwise the backend's scheme and host on
-   * HASHTOPOLIS_FRONTEND_PORT, otherwise null.
+   * HASHTOPOLIS_FRONTEND_PORT, otherwise null. An unparseable first HASHTOPOLIS_FRONTEND_URLS entry
+   * returns null and does not fall back to the port.
    */
   public static function defaultFrontendOrigin(): ?string {
     $urls = self::readSetting('HASHTOPOLIS_FRONTEND_URLS');

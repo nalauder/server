@@ -738,4 +738,24 @@ final class CorsHackMiddlewareTest extends TestCase {
     putenv("HASHTOPOLIS_FRONTEND_PORT=4200");
     $this->assertNull(CorsHackMiddleware::defaultFrontendOrigin());
   }
+
+  public function testCanonicalTrustedOrigin(): void {
+    putenv("HASHTOPOLIS_BACKEND_URL=https://hashtopolis.example.com");
+    putenv("HASHTOPOLIS_FRONTEND_URLS=http://localhost:4200,https://app.example.com");
+
+    $this->assertSame("http://localhost:4200", CorsHackMiddleware::canonicalTrustedOrigin("HTTP://LocalHost:4200/"));
+    // the matcher treats an explicit default port as equal, so it is dropped
+    $this->assertSame("https://app.example.com", CorsHackMiddleware::canonicalTrustedOrigin("https://app.example.com:443"));
+    $this->assertNull(CorsHackMiddleware::canonicalTrustedOrigin("https://other.example.com"));
+  }
+
+  public function testCanonicalTrustedOriginRejectsHostileInput(): void {
+    putenv("HASHTOPOLIS_FRONTEND_URLS=http://localhost:4200");
+
+    foreach (["http://localhost:4200.evil.test", "http://localhost:4200@evil.test", "http://localhost:4200\r\nX: y",
+      " http://localhost:4200", "http://localhost:4200 ", "http://localhost:4200\\evil", "http://localhost:4200\x00", "http://localhost:4200//"] as $bad) {
+      $this->assertNull(CorsHackMiddleware::canonicalTrustedOrigin($bad), $bad);
+      $this->assertFalse(CorsHackMiddleware::isTrustedOrigin($bad));
+    }
+  }
 }
