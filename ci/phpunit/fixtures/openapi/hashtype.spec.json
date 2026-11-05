@@ -1019,6 +1019,424 @@
                 ]
             }
         },
+        "/api/v2/auth/oidc/config": {
+            "get": {
+                "tags": [
+                    "Login"
+                ],
+                "summary": "Single sign-on settings for the login page",
+                "description": "Public. Answers 200 with enabled=false when single sign-on is not configured, so a login page can always call it.",
+                "responses": {
+                    "200": {
+                        "description": "Success",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/OidcConfigResponse"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": []
+            }
+        },
+        "/api/v2/auth/oidc/login": {
+            "get": {
+                "tags": [
+                    "Login"
+                ],
+                "summary": "Start a single sign-on login",
+                "description": "Public. Sets the oidcState cookie and redirects the browser to the identity provider. Use a browser navigation, not an XHR call.",
+                "parameters": [
+                    {
+                        "name": "returnTo",
+                        "in": "query",
+                        "required": true,
+                        "description": "Origin of the frontend to return to. Must be one of the origins this server trusts.",
+                        "schema": {
+                            "type": "string",
+                            "example": "https://hashtopolis.example.com"
+                        }
+                    }
+                ],
+                "responses": {
+                    "302": {
+                        "description": "Redirect to the identity provider",
+                        "headers": {
+                            "Location": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            },
+                            "Set-Cookie": {
+                                "description": "The oidcState cookie that ties the callback to this browser.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "returnTo is not a trusted origin",
+                        "content": {
+                            "application/problem+json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Single sign-on is not enabled",
+                        "content": {
+                            "application/problem+json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": []
+            }
+        },
+        "/api/v2/auth/oidc/callback": {
+            "get": {
+                "tags": [
+                    "Login"
+                ],
+                "summary": "Redirect target of the identity provider",
+                "description": "Public. Register this URL as the redirect URI with the provider. Needs the oidcState cookie. Always answers with a redirect to the frontend, which carries only a reason code on failure.",
+                "parameters": [
+                    {
+                        "name": "code",
+                        "in": "query",
+                        "required": false,
+                        "description": "Authorization code from the provider.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "state",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "error",
+                        "in": "query",
+                        "required": false,
+                        "description": "Error code from the provider, sent instead of code.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "302": {
+                        "description": "Redirect to the frontend",
+                        "headers": {
+                            "Location": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            },
+                            "Set-Cookie": {
+                                "description": "The refresh token cookie when the login succeeded, or a new oidcState cookie when the identity still has to be linked.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "The request is unknown and no frontend is configured to redirect to",
+                        "content": {
+                            "application/problem+json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "oidcStateCookie": []
+                    }
+                ]
+            }
+        },
+        "/api/v2/auth/oidc/link": {
+            "post": {
+                "tags": [
+                    "Login"
+                ],
+                "summary": "Link a single sign-on identity to the current user",
+                "description": "Checks the current password and returns the provider URL to open. Sets the oidcState cookie.",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/OidcLinkRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Success",
+                        "headers": {
+                            "Set-Cookie": {
+                                "description": "The oidcState cookie that ties the callback to this browser.",
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/OidcLinkResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "The password is missing",
+                        "content": {
+                            "application/problem+json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Wrong password",
+                        "content": {
+                            "application/problem+json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "The request origin is not allowed to send credentials",
+                        "content": {
+                            "application/problem+json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Single sign-on is not enabled",
+                        "content": {
+                            "application/problem+json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/v2/auth/oidc/link-pending": {
+            "post": {
+                "tags": [
+                    "Login"
+                ],
+                "summary": "Link the identity of a first single sign-on login",
+                "description": "Public, needs the oidcState cookie set by the callback. Checks the Hashtopolis credentials, links the identity and signs the user in. Still accepts a password when local login is switched off. A wrong password does not use up the pending request.",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/OidcLinkPendingRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "204": {
+                        "description": "Linked and signed in",
+                        "headers": {
+                            "Set-Cookie": {
+                                "description": "The rotated refresh token, scoped to /api/v2/auth/refresh and marked HttpOnly.\n        Replaces the cookie sent with the request, which is consumed by this call.",
+                                "schema": {
+                                    "type": "string",
+                                    "example": "refreshToken=4fa1371293a112224bc930cf9fecd0fd; Path=/api/v2/auth/refresh; Max-Age=1209600; Expires=Wed, 30 Sep 2026 07:02:31 GMT; HttpOnly; SameSite=Strict"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "The username or password is missing",
+                        "content": {
+                            "application/problem+json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Wrong credentials, or there is no pending link",
+                        "content": {
+                            "application/problem+json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "The request origin is not allowed to send credentials",
+                        "content": {
+                            "application/problem+json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Single sign-on is not enabled",
+                        "content": {
+                            "application/problem+json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "The identity is already linked to another user",
+                        "content": {
+                            "application/problem+json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "oidcStateCookie": []
+                    }
+                ]
+            }
+        },
+        "/api/v2/auth/oidc/identities": {
+            "get": {
+                "tags": [
+                    "Login"
+                ],
+                "summary": "List the single sign-on identities of the current user",
+                "responses": {
+                    "200": {
+                        "description": "Success",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/OidcIdentityList"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Authentication failed",
+                        "content": {
+                            "application/problem+json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/v2/auth/oidc/identities/{id}": {
+            "delete": {
+                "tags": [
+                    "Login"
+                ],
+                "summary": "Unlink a single sign-on identity",
+                "description": "Only the owner can unlink an identity.",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Success"
+                    },
+                    "401": {
+                        "description": "Authentication failed",
+                        "content": {
+                            "application/problem+json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "The request origin is not allowed to send credentials",
+                        "content": {
+                            "application/problem+json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "The identity does not exist or belongs to another user",
+                        "content": {
+                            "application/problem+json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
         "/api/v2/helper/importFile": {
             "post": {
                 "parameters": [
@@ -2449,6 +2867,112 @@
                     }
                 }
             },
+            "OidcConfigResponse": {
+                "type": "object",
+                "required": [
+                    "enabled",
+                    "displayName",
+                    "localLoginEnabled"
+                ],
+                "properties": {
+                    "enabled": {
+                        "type": "boolean"
+                    },
+                    "displayName": {
+                        "type": "string",
+                        "example": "SSO"
+                    },
+                    "localLoginEnabled": {
+                        "type": "boolean"
+                    }
+                },
+                "additionalProperties": false
+            },
+            "OidcLinkRequest": {
+                "type": "object",
+                "required": [
+                    "password"
+                ],
+                "properties": {
+                    "password": {
+                        "type": "string",
+                        "format": "password"
+                    }
+                },
+                "additionalProperties": false
+            },
+            "OidcLinkPendingRequest": {
+                "type": "object",
+                "required": [
+                    "username",
+                    "password"
+                ],
+                "properties": {
+                    "username": {
+                        "type": "string"
+                    },
+                    "password": {
+                        "type": "string",
+                        "format": "password"
+                    }
+                },
+                "additionalProperties": false
+            },
+            "OidcLinkResponse": {
+                "type": "object",
+                "required": [
+                    "authorizeUrl"
+                ],
+                "properties": {
+                    "authorizeUrl": {
+                        "type": "string"
+                    }
+                },
+                "additionalProperties": false
+            },
+            "OidcIdentityList": {
+                "type": "object",
+                "required": [
+                    "identities"
+                ],
+                "properties": {
+                    "identities": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": [
+                                "id",
+                                "label",
+                                "issuer",
+                                "createdAt",
+                                "lastUsedAt"
+                            ],
+                            "properties": {
+                                "id": {
+                                    "type": "integer"
+                                },
+                                "label": {
+                                    "type": "string"
+                                },
+                                "issuer": {
+                                    "type": "string"
+                                },
+                                "createdAt": {
+                                    "type": "integer"
+                                },
+                                "lastUsedAt": {
+                                    "type": [
+                                        "integer",
+                                        "null"
+                                    ]
+                                }
+                            },
+                            "additionalProperties": false
+                        }
+                    }
+                },
+                "additionalProperties": false
+            },
             "Token": {
                 "type": "object",
                 "required": [
@@ -2524,6 +3048,12 @@
                 "description": "HttpOnly cookie holding the refresh token, set by /api/v2/auth/token and scoped to /api/v2/auth/refresh.",
                 "in": "cookie",
                 "name": "refreshToken"
+            },
+            "oidcStateCookie": {
+                "type": "apiKey",
+                "description": "HttpOnly cookie that ties an OIDC single sign-on callback or pending link to the browser that started it, set by /api/v2/auth/oidc/login, /link and /callback.",
+                "in": "cookie",
+                "name": "oidcState"
             }
         }
     }

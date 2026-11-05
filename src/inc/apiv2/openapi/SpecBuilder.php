@@ -68,6 +68,13 @@ class SpecBuilder {
      */
     $paths["/api/v2/auth/token"] = $this->staticFragments->authTokenPath();
     $paths["/api/v2/auth/refresh"] = $this->staticFragments->authRefreshPath();
+    foreach ($this->staticFragments->oidcPaths() as $oidcPath => $oidcItem) {
+      $paths[$oidcPath] = $oidcItem;
+    }
+
+    foreach ($this->staticFragments->oidcComponents() as $key => $schema) {
+      $components[$key] = $schema;
+    }
 
     foreach ($this->staticFragments->tokenComponents() as $key => $schema) {
       $components[$key] = $schema;
@@ -122,6 +129,12 @@ class SpecBuilder {
             "description" => "HttpOnly cookie holding the refresh token, set by /api/v2/auth/token and scoped to /api/v2/auth/refresh.",
             "in" => "cookie",
             "name" => "refreshToken"
+          ],
+          "oidcStateCookie" => [
+            "type" => "apiKey",
+            "description" => "HttpOnly cookie that ties an OIDC single sign-on callback or pending link to the browser that started it, set by /api/v2/auth/oidc/login, /link and /callback.",
+            "in" => "cookie",
+            "name" => "oidcState"
           ]
         ]
       ],

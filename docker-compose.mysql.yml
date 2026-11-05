@@ -30,6 +30,14 @@ services:
       # through X-Forwarded-Proto (SECURE=true). Leaving them empty keeps the safe defaults.
       HASHTOPOLIS_REFRESH_COOKIE_SAMESITE: $HASHTOPOLIS_REFRESH_COOKIE_SAMESITE
       HASHTOPOLIS_REFRESH_COOKIE_SECURE: $HASHTOPOLIS_REFRESH_COOKIE_SECURE
+      # Single sign-on with OpenID Connect (docs: installation_guidelines/oidc-sso.md). Setting the issuer
+      # enables it and needs the client ID and secret too. All are optional; empty means unset.
+      HASHTOPOLIS_OIDC_ISSUER: $HASHTOPOLIS_OIDC_ISSUER
+      HASHTOPOLIS_OIDC_CLIENT_ID: $HASHTOPOLIS_OIDC_CLIENT_ID
+      HASHTOPOLIS_OIDC_CLIENT_SECRET: $HASHTOPOLIS_OIDC_CLIENT_SECRET
+      HASHTOPOLIS_OIDC_SCOPES: $HASHTOPOLIS_OIDC_SCOPES
+      HASHTOPOLIS_OIDC_DISPLAY_NAME: $HASHTOPOLIS_OIDC_DISPLAY_NAME
+      HASHTOPOLIS_LOCAL_LOGIN_ENABLED: $HASHTOPOLIS_LOCAL_LOGIN_ENABLED
     depends_on:
       - db
     ports:

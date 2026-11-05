@@ -195,6 +195,266 @@ class StaticFragments {
     ];
   }
 
+  /**
+   * The OIDC single sign-on endpoints (see oidc.routes.php). None of them is a JSON:API resource
+   * endpoint: they answer plain application/json, redirects or empty bodies.
+   *
+   * @return array<string, array>  path => path item
+   */
+  public function oidcPaths(): array {
+    $base = "/api/v2/auth/oidc";
+    $json = fn(string $schema): array => [
+      "application/json" => [
+        "schema" => [
+          '$ref' => "#/components/schemas/" . $schema
+        ]
+      ]
+    ];
+    $jwt = [["bearerAuth" => []]];
+    $cookieSecurity = [["oidcStateCookie" => []]];
+    $problem = fn(string $description): array => $this->problemResponse($description);
+    $stateCookie = [
+      "description" => "The oidcState cookie that ties the callback to this browser.",
+      "schema" => ["type" => "string"]
+    ];
+
+    return [
+      "$base/config" => [
+        "get" => [
+          "tags" => ["Login"],
+          "summary" => "Single sign-on settings for the login page",
+          "description" => "Public. Answers 200 with enabled=false when single sign-on is not configured, so a login page can always call it.",
+          "responses" => [
+            "200" => [
+              "description" => "Success",
+              "content" => $json("OidcConfigResponse")
+            ]
+          ],
+          "security" => []
+        ]
+      ],
+      "$base/login" => [
+        "get" => [
+          "tags" => ["Login"],
+          "summary" => "Start a single sign-on login",
+          "description" => "Public. Sets the oidcState cookie and redirects the browser to the identity provider. Use a browser navigation, not an XHR call.",
+          "parameters" => [
+            [
+              "name" => "returnTo",
+              "in" => "query",
+              "required" => true,
+              "description" => "Origin of the frontend to return to. Must be one of the origins this server trusts.",
+              "schema" => ["type" => "string", "example" => "https://hashtopolis.example.com"]
+            ]
+          ],
+          "responses" => [
+            "302" => [
+              "description" => "Redirect to the identity provider",
+              "headers" => [
+                "Location" => ["schema" => ["type" => "string"]],
+                "Set-Cookie" => $stateCookie
+              ]
+            ],
+            "400" => $problem("returnTo is not a trusted origin"),
+            "404" => $problem("Single sign-on is not enabled")
+          ],
+          "security" => []
+        ]
+      ],
+      "$base/callback" => [
+        "get" => [
+          "tags" => ["Login"],
+          "summary" => "Redirect target of the identity provider",
+          "description" => "Public. Register this URL as the redirect URI with the provider. Needs the oidcState cookie. Always answers with a redirect to the frontend, which carries only a reason code on failure.",
+          "parameters" => [
+            [
+              "name" => "code",
+              "in" => "query",
+              "required" => false,
+              "description" => "Authorization code from the provider.",
+              "schema" => ["type" => "string"]
+            ],
+            [
+              "name" => "state",
+              "in" => "query",
+              "required" => true,
+              "schema" => ["type" => "string"]
+            ],
+            [
+              "name" => "error",
+              "in" => "query",
+              "required" => false,
+              "description" => "Error code from the provider, sent instead of code.",
+              "schema" => ["type" => "string"]
+            ]
+          ],
+          "responses" => [
+            "302" => [
+              "description" => "Redirect to the frontend",
+              "headers" => [
+                "Location" => ["schema" => ["type" => "string"]],
+                "Set-Cookie" => [
+                  "description" => "The refresh token cookie when the login succeeded, or a new oidcState cookie when the identity still has to be linked.",
+                  "schema" => ["type" => "string"]
+                ]
+              ]
+            ],
+            "400" => $problem("The request is unknown and no frontend is configured to redirect to")
+          ],
+          "security" => $cookieSecurity
+        ]
+      ],
+      "$base/link" => [
+        "post" => [
+          "tags" => ["Login"],
+          "summary" => "Link a single sign-on identity to the current user",
+          "description" => "Checks the current password and returns the provider URL to open. Sets the oidcState cookie.",
+          "requestBody" => [
+            "required" => true,
+            "content" => $json("OidcLinkRequest")
+          ],
+          "responses" => [
+            "200" => [
+              "description" => "Success",
+              "headers" => [
+                "Set-Cookie" => $stateCookie
+              ],
+              "content" => $json("OidcLinkResponse")
+            ],
+            "400" => $problem("The password is missing"),
+            "401" => $problem("Wrong password"),
+            "403" => $problem("The request origin is not allowed to send credentials"),
+            "404" => $problem("Single sign-on is not enabled")
+          ],
+          "security" => $jwt
+        ]
+      ],
+      "$base/link-pending" => [
+        "post" => [
+          "tags" => ["Login"],
+          "summary" => "Link the identity of a first single sign-on login",
+          "description" => "Public, needs the oidcState cookie set by the callback. Checks the Hashtopolis credentials, links the identity and signs the user in. Still accepts a password when local login is switched off. A wrong password does not use up the pending request.",
+          "requestBody" => [
+            "required" => true,
+            "content" => $json("OidcLinkPendingRequest")
+          ],
+          "responses" => [
+            "204" => [
+              "description" => "Linked and signed in",
+              "headers" => [
+                "Set-Cookie" => $this->rotatedCookieHeader()
+              ]
+            ],
+            "400" => $problem("The username or password is missing"),
+            "401" => $problem("Wrong credentials, or there is no pending link"),
+            "403" => $problem("The request origin is not allowed to send credentials"),
+            "404" => $problem("Single sign-on is not enabled"),
+            "409" => $problem("The identity is already linked to another user")
+          ],
+          "security" => $cookieSecurity
+        ]
+      ],
+      "$base/identities" => [
+        "get" => [
+          "tags" => ["Login"],
+          "summary" => "List the single sign-on identities of the current user",
+          "responses" => [
+            "200" => [
+              "description" => "Success",
+              "content" => $json("OidcIdentityList")
+            ],
+            "401" => $problem("Authentication failed")
+          ],
+          "security" => $jwt
+        ]
+      ],
+      "$base/identities/{id}" => [
+        "delete" => [
+          "tags" => ["Login"],
+          "summary" => "Unlink a single sign-on identity",
+          "description" => "Only the owner can unlink an identity.",
+          "parameters" => [
+            [
+              "name" => "id",
+              "in" => "path",
+              "required" => true,
+              "schema" => ["type" => "integer"]
+            ]
+          ],
+          "responses" => [
+            "204" => ["description" => "Success"],
+            "401" => $problem("Authentication failed"),
+            "403" => $problem("The request origin is not allowed to send credentials"),
+            "404" => $problem("The identity does not exist or belongs to another user")
+          ],
+          "security" => $jwt
+        ]
+      ]
+    ];
+  }
+
+  public function oidcComponents(): array {
+    return [
+      "OidcConfigResponse" => [
+        "type" => "object",
+        "required" => ["enabled", "displayName", "localLoginEnabled"],
+        "properties" => [
+          "enabled" => ["type" => "boolean"],
+          "displayName" => ["type" => "string", "example" => "SSO"],
+          "localLoginEnabled" => ["type" => "boolean"]
+        ],
+        "additionalProperties" => false
+      ],
+      "OidcLinkRequest" => [
+        "type" => "object",
+        "required" => ["password"],
+        "properties" => [
+          "password" => ["type" => "string", "format" => "password"]
+        ],
+        "additionalProperties" => false
+      ],
+      "OidcLinkPendingRequest" => [
+        "type" => "object",
+        "required" => ["username", "password"],
+        "properties" => [
+          "username" => ["type" => "string"],
+          "password" => ["type" => "string", "format" => "password"]
+        ],
+        "additionalProperties" => false
+      ],
+      "OidcLinkResponse" => [
+        "type" => "object",
+        "required" => ["authorizeUrl"],
+        "properties" => [
+          "authorizeUrl" => ["type" => "string"]
+        ],
+        "additionalProperties" => false
+      ],
+      "OidcIdentityList" => [
+        "type" => "object",
+        "required" => ["identities"],
+        "properties" => [
+          "identities" => [
+            "type" => "array",
+            "items" => [
+              "type" => "object",
+              "required" => ["id", "label", "issuer", "createdAt", "lastUsedAt"],
+              "properties" => [
+                "id" => ["type" => "integer"],
+                "label" => ["type" => "string"],
+                "issuer" => ["type" => "string"],
+                "createdAt" => ["type" => "integer"],
+                "lastUsedAt" => ["type" => ["integer", "null"]]
+              ],
+              "additionalProperties" => false
+            ]
+          ]
+        ],
+        "additionalProperties" => false
+      ]
+    ];
+  }
+
   public function tokenComponents(): array {
     $components = [];
     $components["Token"] = [
